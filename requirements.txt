@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+requests
+tradingview-screener
+plotly
+streamlit-sortables
+openpyxl
+beautifulsoup4
+google-genai
+markdown
+fpdf2
