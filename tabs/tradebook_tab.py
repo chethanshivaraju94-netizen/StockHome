@@ -36,7 +36,23 @@ def render_tradebook_tab():
 
     tb_data = st.session_state.tradebook
     starting_cap = float(tb_data.get("config", {}).get("starting_capital", 500000.0))
-    all_trades = tb_data.get("trades", [])
+    raw_trades = tb_data.get("trades", [])
+
+    # ==========================================
+    # 1. CHRONOLOGICAL SORTING ENGINE
+    # ==========================================
+    # Sort trades descending by Date Bought to ensure newest setups are always on top
+    # Sub-sort by ticker, status (OPEN on top of CLOSED), and Date Sold for partial exits
+    all_trades = sorted(
+        raw_trades,
+        key=lambda x: (
+            x.get("date_bought", "1900-01-01"),
+            x.get("ticker", ""),
+            0 if x.get("status") == "OPEN" else 1,
+            x.get("date_sold", "1900-01-01")
+        ),
+        reverse=True
+    )
 
     # Load market monitor for Nifty 500 benchmark lookup
     df_mm_tb = load_market_monitor_data()
@@ -624,6 +640,14 @@ def render_tradebook_tab():
             t for t in processed_trade_rows
             if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", ""))
         ]
+        
+        # Sort fully closed setups descending by Date Sold to ensure streak tracks immediate past performance accurately
+        fully_closed_setups = sorted(
+            fully_closed_setups, 
+            key=lambda x: x.get("Date Sold", "1900-01-01"), 
+            reverse=True
+        )
+        
         total_closed = len(fully_closed_setups)
         unique_setups = len(trade_signatures)
         active_setups = len(set(t["Signature"] for t in processed_trade_rows if "OPEN" in t["Status"]))
@@ -656,7 +680,7 @@ def render_tradebook_tab():
 
             streak_count = 0
             last_outcome = None
-            for t in reversed(fully_closed_setups):
+            for t in fully_closed_setups:
                 is_win = t["Total Ret (₹)"] > 0
                 if last_outcome is None:
                     last_outcome = is_win
