@@ -256,13 +256,14 @@ def render_tradebook_tab():
             group_metrics[sig] = {
                 "total_capital": 0.0,
                 "total_gain_loss": 0.0,
-                "total_shares_rem": 0
+                "total_shares_rem": 0,
+                "rows_processed": 0
             }
         group_metrics[sig]["total_capital"] += r["Capital Invested (₹)"]
         group_metrics[sig]["total_gain_loss"] += r["Gain / Loss (₹)"]
         group_metrics[sig]["total_shares_rem"] += r["Shares Remaining"]
 
-    # Assign aggregate Status, Avg Ret %, and Total Ret (₹)
+    # Assign aggregate Status, Avg Ret %, and Total Ret (₹) to rows
     for r in processed_trade_rows:
         sig = r["Signature"]
         tot_cap = group_metrics[sig]["total_capital"]
@@ -272,18 +273,22 @@ def render_tradebook_tab():
         r["Avg Ret %"] = (tot_gl / tot_cap * 100) if tot_cap > 0 else 0.0
         r["Total Ret (₹)"] = tot_gl
 
-        if tot_rem == 0:
-            if tot_gl > 0:
-                r["Status"] = "🔵 WIN"
-            elif tot_gl < 0:
-                r["Status"] = "🔴 LOSS"
+        # Only assign the main WIN/LOSS/OPEN to the primary setup row
+        is_first_row = (group_metrics[sig]["rows_processed"] == 0)
+        group_metrics[sig]["rows_processed"] += 1
+
+        if is_first_row:
+            if tot_rem == 0:
+                if tot_gl > 0:
+                    r["Status"] = "🔵 WIN"
+                elif tot_gl < 0:
+                    r["Status"] = "🔴 LOSS"
+                else:
+                    r["Status"] = "⚪ SCRATCH"
             else:
-                r["Status"] = "⚪ SCRATCH"
-        else:
-            if r["Shares Remaining"] > 0:
                 r["Status"] = "🟢 OPEN"
-            else:
-                r["Status"] = "🟣 PARTIAL EXIT"
+        else:
+            r["Status"] = "PARTIAL EXIT"
 
     total_portfolio_nav = cash_balance + open_current_val_total
     portfolio_heat_pct = (
@@ -614,25 +619,26 @@ def render_tradebook_tab():
         st.markdown("---")
         st.subheader("📊 Elite Risk Management & Performance Analytics")
 
-        closed_lots = [
+        # Extract strictly fully closed setups for the Win/Loss metrics
+        fully_closed_setups = [
             t for t in processed_trade_rows
-            if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", "")) or "PARTIAL" in str(t.get("Status", ""))
+            if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", ""))
         ]
-        total_closed = len(closed_lots)
+        total_closed = len(fully_closed_setups)
         unique_setups = len(trade_signatures)
         active_setups = len(set(t["Signature"] for t in processed_trade_rows if "OPEN" in t["Status"]))
 
         if total_closed > 0:
-            wins = [t for t in closed_lots if t["Realised Gains (₹)"] > 0]
-            losses = [t for t in closed_lots if t["Realised Gains (₹)"] <= 0]
+            wins = [t for t in fully_closed_setups if t["Total Ret (₹)"] > 0]
+            losses = [t for t in fully_closed_setups if t["Total Ret (₹)"] <= 0]
             win_count = len(wins)
             loss_count = len(losses)
             win_rate = (win_count / total_closed) * 100
 
-            avg_win_inr = sum(t["Realised Gains (₹)"] for t in wins) / win_count if win_count > 0 else 0.0
-            avg_loss_inr = abs(sum(t["Realised Gains (₹)"] for t in losses)) / loss_count if loss_count > 0 else 0.0
-            avg_win_pct = sum(t["Abs Return %"] for t in wins) / win_count if win_count > 0 else 0.0
-            avg_loss_pct = abs(sum(t["Abs Return %"] for t in losses)) / loss_count if loss_count > 0 else 0.0
+            avg_win_inr = sum(t["Total Ret (₹)"] for t in wins) / win_count if win_count > 0 else 0.0
+            avg_loss_inr = abs(sum(t["Total Ret (₹)"] for t in losses)) / loss_count if loss_count > 0 else 0.0
+            avg_win_pct = sum(t["Avg Ret %"] for t in wins) / win_count if win_count > 0 else 0.0
+            avg_loss_pct = abs(sum(t["Avg Ret %"] for t in losses)) / loss_count if loss_count > 0 else 0.0
 
             rr_monetary = avg_win_inr / avg_loss_inr if avg_loss_inr > 0 else avg_win_inr
             rr_ratio = avg_win_pct / avg_loss_pct if avg_loss_pct > 0 else avg_win_pct
@@ -650,8 +656,8 @@ def render_tradebook_tab():
 
             streak_count = 0
             last_outcome = None
-            for t in reversed(closed_lots):
-                is_win = t["Realised Gains (₹)"] > 0
+            for t in reversed(fully_closed_setups):
+                is_win = t["Total Ret (₹)"] > 0
                 if last_outcome is None:
                     last_outcome = is_win
                     streak_count = 1
@@ -684,10 +690,13 @@ def render_tradebook_tab():
         st.markdown("---")
         st.subheader("📅 Trading Performance Calendar")
         
-        if total_closed == 0:
+        # Calendar uses ALL closed lots (including partials) to map cash flow to specific days
+        all_closed_lots = [t for t in processed_trade_rows if t["Shares Sold"] > 0]
+        
+        if len(all_closed_lots) == 0:
             st.info("No closed trades available to generate the Trading Calendar yet.")
         else:
-            df_closed_cal = pd.DataFrame(closed_lots)
+            df_closed_cal = pd.DataFrame(all_closed_lots)
             df_closed_cal["Date_DT"] = pd.to_datetime(df_closed_cal["Date Sold"], errors="coerce")
             df_closed_cal = df_closed_cal.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
 
