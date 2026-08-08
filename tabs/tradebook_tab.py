@@ -172,7 +172,6 @@ def render_tradebook_tab():
             evaluated_bench_trades += 1
 
             realized_r = 0.0
-            status_label = "🟢 OPEN"
 
         else:
             sold_price = float(tr.get("sell_price", b_price))
@@ -219,13 +218,6 @@ def render_tradebook_tab():
                 realized_pnl / (sh_sold * unit_risk) if (sh_sold * unit_risk) > 0 else 0.0
             )
 
-            if realized_pnl > 0:
-                status_label = "🔵 WIN"
-            elif realized_pnl < 0:
-                status_label = "🔴 LOSS"
-            else:
-                status_label = "⚪ SCRATCH"
-
         tot_return_inr = realized_pnl + unrealized_pnl
         abs_return_pct = (
             ((curr_price - b_price) / b_price) * 100 if b_price > 0 else 0.0
@@ -236,7 +228,6 @@ def render_tradebook_tab():
             "S.No._num": sl_num_shared,
             "Signature": sig,
             "Ticker": ticker,
-            "Status": status_label,
             "Shares Bought": sh_bought,
             "Date Bought": date_b,
             "Buy Price (₹)": b_price,
@@ -254,6 +245,45 @@ def render_tradebook_tab():
             "Current Value (₹)": curr_val,
             "Date Sold": date_s,
         })
+
+    # ==========================================
+    # GROUP METRICS: AGGREGATE RETURNS PER SETUP
+    # ==========================================
+    group_metrics = {}
+    for r in processed_trade_rows:
+        sig = r["Signature"]
+        if sig not in group_metrics:
+            group_metrics[sig] = {
+                "total_capital": 0.0,
+                "total_gain_loss": 0.0,
+                "total_shares_rem": 0
+            }
+        group_metrics[sig]["total_capital"] += r["Capital Invested (₹)"]
+        group_metrics[sig]["total_gain_loss"] += r["Gain / Loss (₹)"]
+        group_metrics[sig]["total_shares_rem"] += r["Shares Remaining"]
+
+    # Assign aggregate Status, Avg Ret %, and Total Ret (₹)
+    for r in processed_trade_rows:
+        sig = r["Signature"]
+        tot_cap = group_metrics[sig]["total_capital"]
+        tot_gl = group_metrics[sig]["total_gain_loss"]
+        tot_rem = group_metrics[sig]["total_shares_rem"]
+
+        r["Avg Ret %"] = (tot_gl / tot_cap * 100) if tot_cap > 0 else 0.0
+        r["Total Ret (₹)"] = tot_gl
+
+        if tot_rem == 0:
+            if tot_gl > 0:
+                r["Status"] = "🔵 WIN"
+            elif tot_gl < 0:
+                r["Status"] = "🔴 LOSS"
+            else:
+                r["Status"] = "⚪ SCRATCH"
+        else:
+            if r["Shares Remaining"] > 0:
+                r["Status"] = "🟢 OPEN"
+            else:
+                r["Status"] = "🟣 PARTIAL EXIT"
 
     total_portfolio_nav = cash_balance + open_current_val_total
     portfolio_heat_pct = (
@@ -321,9 +351,8 @@ def render_tradebook_tab():
         if tb_filter == "Open Positions Only":
             df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("OPEN")].reset_index(drop=True)
         elif tb_filter == "Closed Trades Only":
-            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("WIN|LOSS|SCRATCH")].reset_index(drop=True)
+            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("WIN|LOSS|SCRATCH|PARTIAL")].reset_index(drop=True)
 
-    # Read selected row directly from table interaction
     selection_state = st.session_state.get("tb_manage_table", {"selection": {"rows": []}})
     selected_rows = selection_state.get("selection", {}).get("rows", [])
     
@@ -350,7 +379,6 @@ def render_tradebook_tab():
 
             b_date = st.date_input("Date Bought:", value=date.today())
             
-            # Static defaults decoupled to prevent Streamlit widget overwrites on form submit
             b_shares = st.number_input("Shares Bought:", min_value=1, value=1, step=1)
             b_price = st.number_input("Buy Price (₹):", min_value=0.0, value=0.0, step=1.0)
             b_sl = st.number_input("Initial Stop Loss Price (₹):", min_value=0.0, value=0.0, step=1.0)
@@ -521,7 +549,6 @@ def render_tradebook_tab():
     if df_tb_display.empty:
         st.info("Your Tradebook is empty! Click **'➕ Log New Buy'** above to record your first position.")
     else:
-        # Calculate Allocation % dynamically based on total NAV
         if total_portfolio_nav > 0:
             df_tb_display["Allocation %"] = df_tb_display["Current Value (₹)"].apply(
                 lambda v: (v / total_portfolio_nav) * 100 if v > 0 else 0.0
@@ -529,39 +556,49 @@ def render_tradebook_tab():
         else:
             df_tb_display["Allocation %"] = 0.0
 
-        # Group S.No. to prevent repeating numbers for partial exits
-        seen_snos = set()
-        sno_display_list = []
-        for sno in df_tb_display["S.No._num"]:
-            if sno not in seen_snos:
-                seen_snos.add(sno)
-                sno_display_list.append(str(sno))
-            else:
-                sno_display_list.append("")
-        df_tb_display["S.No."] = sno_display_list
-
-        # Strictly enforce 2-decimal rounding
+        # Numeric rounding before deduplication
         float_cols_2dec = [
             "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
             "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
-            "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)",
-            "Current Value (₹)", "Allocation %"
+            "Abs Return %", "Avg Ret %", "Total Ret (₹)", "Unrealised Value (₹)", 
+            "Capital Invested (₹)", "Current Value (₹)", "Allocation %"
         ]
         for fc in float_cols_2dec:
             if fc in df_tb_display.columns:
                 df_tb_display[fc] = pd.to_numeric(df_tb_display[fc], errors="coerce").round(2)
 
+        # Visually deduplicate S.No., Avg Ret %, and Total Ret (₹) by grouping setup signature
+        seen_sigs = set()
+        sno_display_list = []
+        avg_ret_list = []
+        tot_ret_list = []
+        for idx, row in df_tb_display.iterrows():
+            sig = row["Signature"]
+            if sig not in seen_sigs:
+                seen_sigs.add(sig)
+                sno_display_list.append(str(row["S.No._num"]))
+                avg_ret_list.append(row["Avg Ret %"])
+                tot_ret_list.append(row["Total Ret (₹)"])
+            else:
+                sno_display_list.append("")
+                avg_ret_list.append(None)
+                tot_ret_list.append(None)
+                
+        df_tb_display["S.No."] = sno_display_list
+        df_tb_display["Avg Ret %"] = avg_ret_list
+        df_tb_display["Total Ret (₹)"] = tot_ret_list
+
         tb_table_columns = [
             "S.No.", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
             "Initial SL (₹)", "Current / Sold Price (₹)", "Gain / Loss (₹)", "Realized R",
             "Shares Sold", "Booked Value (₹)", "Realised Gains (₹)", "Shares Remaining",
-            "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)", "Current Value (₹)", "Allocation %",
+            "Abs Return %", "Avg Ret %", "Total Ret (₹)", "Unrealised Value (₹)", 
+            "Capital Invested (₹)", "Current Value (₹)", "Allocation %",
         ]
 
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
         st.caption("💡 Select a row to Edit, Delete, or Log an Exit.")
         
-        # Enable row selection
         st.dataframe(
             df_tb_display[tb_table_columns],
             use_container_width=True,
@@ -579,7 +616,7 @@ def render_tradebook_tab():
 
         closed_lots = [
             t for t in processed_trade_rows
-            if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", ""))
+            if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", "")) or "PARTIAL" in str(t.get("Status", ""))
         ]
         total_closed = len(closed_lots)
         unique_setups = len(trade_signatures)
