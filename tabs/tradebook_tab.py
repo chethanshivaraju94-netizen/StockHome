@@ -632,7 +632,7 @@ def render_tradebook_tab():
 
             df_closed_cal['Month_Year'] = df_closed_cal['Date_DT'].dt.strftime('%b %Y')
             months = df_closed_cal['Month_Year'].unique().tolist()
-            months.reverse() # Show latest month first
+            months.reverse()
 
             cal_col1, cal_col2 = st.columns([1, 3])
             with cal_col1:
@@ -641,7 +641,6 @@ def render_tradebook_tab():
             selected_dt = datetime.strptime(selected_month_str, '%b %Y')
             target_year, target_month = selected_dt.year, selected_dt.month
 
-            # Filter data for selected month
             month_data = df_closed_cal[(df_closed_cal['Date_DT'].dt.year == target_year) & (df_closed_cal['Date_DT'].dt.month == target_month)]
             monthly_pnl = month_data['Realised Gains (₹)'].sum()
             monthly_trades = month_data['Ticker'].count()
@@ -651,7 +650,7 @@ def render_tradebook_tab():
             with cal_col2:
                 st.markdown(f"<div style='text-align: right; padding-top: 5px; color: #A0A5B5; font-size: 14px;'>Monthly P&L: <span style='color: {monthly_color_hex}; font-weight: bold;'>{format_currency_cal(monthly_pnl)}</span> ({monthly_trades} {'trade' if monthly_trades == 1 else 'trades'})</div>", unsafe_allow_html=True)
 
-            cal = calendar.Calendar(firstweekday=6) # 6 = Sunday Start
+            cal = calendar.Calendar(firstweekday=6)
             month_days = cal.monthdatescalendar(target_year, target_month)
 
             daily_pnl = df_closed_cal.groupby(df_closed_cal["Date_DT"].dt.date).agg(
@@ -659,28 +658,26 @@ def render_tradebook_tab():
                 trades=("Ticker", "count")
             ).to_dict('index')
 
-            html = """
-            <style>
-            .cal-wrapper { overflow-x: auto; margin-top: 10px; padding-bottom: 10px; }
-            .cal-container { width: 100%; border-collapse: separate; border-spacing: 8px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-width: 800px; }
-            .cal-header th { text-align: center; padding: 5px; font-weight: 600; color: #A0A5B5; font-size: 13px; text-transform: uppercase; }
-            .cal-cell { background-color: #1E222D; border: 1px solid #2B2F3E; border-radius: 6px; padding: 10px; width: 12.5%; height: 95px; vertical-align: top; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
-            .cal-cell-empty { background-color: transparent; border: none; box-shadow: none; }
-            .cal-date { text-align: right; font-size: 13px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600;}
-            .cal-pnl { font-size: 16px; font-weight: 700; text-align: left; margin-top: 10px;}
-            .cal-pnl.green { color: #63BE7B; }
-            .cal-pnl.red { color: #F8696B; }
-            .cal-pnl.zero { color: #7B8191; }
-            .cal-trades { font-size: 12px; color: #A0A5B5; text-align: left; margin-top: 4px; }
-            .cal-week-total { background-color: #262A38; border: 1px solid #363B4E; }
-            .cal-week-label { text-align: center; font-size: 12px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;}
-            .cal-week-pnl { text-align: center; font-size: 16px; font-weight: 700; margin-top: 10px; }
-            .cal-week-trades { text-align: center; font-size: 12px; color: #A0A5B5; margin-top: 4px; }
-            </style>
-            <div class='cal-wrapper'>
-            <table class='cal-container'>
-            <tr class='cal-header'><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Week Total</th></tr>
-            """
+            # Build HTML flatly to bypass markdown indentation bugs
+            html = "<style>"
+            html += ".cal-wrapper { overflow-x: auto; margin-top: 10px; padding-bottom: 10px; }"
+            html += ".cal-container { width: 100%; border-collapse: separate; border-spacing: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-width: 800px; }"
+            html += ".cal-header th { text-align: center; padding: 5px; font-weight: 600; color: #A0A5B5; font-size: 13px; text-transform: uppercase; }"
+            html += ".cal-cell { background-color: #1E222D; border: 1px solid #2B2F3E; border-radius: 6px; padding: 10px; width: 12.5%; height: 95px; vertical-align: top; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}"
+            html += ".cal-cell-empty { background-color: transparent; border: none; box-shadow: none; }"
+            html += ".cal-date { text-align: right; font-size: 13px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600;}"
+            html += ".cal-pnl { font-size: 16px; font-weight: 700; text-align: left; margin-top: 10px;}"
+            html += ".cal-pnl.green { color: #63BE7B; }"
+            html += ".cal-pnl.red { color: #F8696B; }"
+            html += ".cal-pnl.zero { color: #7B8191; }"
+            html += ".cal-trades { font-size: 12px; color: #A0A5B5; text-align: left; margin-top: 4px; }"
+            html += ".cal-week-total { background-color: #262A38; border: 1px solid #363B4E; }"
+            html += ".cal-week-label { text-align: center; font-size: 12px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;}"
+            html += ".cal-week-pnl { text-align: center; font-size: 16px; font-weight: 700; margin-top: 10px; }"
+            html += ".cal-week-trades { text-align: center; font-size: 12px; color: #A0A5B5; margin-top: 4px; }"
+            html += "</style>"
+            html += "<div class='cal-wrapper'><table class='cal-container'>"
+            html += "<tr class='cal-header'><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Week Total</th></tr>"
 
             week_num = 1
             for week in month_days:
@@ -701,25 +698,13 @@ def render_tradebook_tab():
                         pnl_str = format_currency_cal(pnl)
                         trade_str = f"{trades} trades" if trades != 1 else "1 trade"
 
-                        html += f"""
-                        <td class='cal-cell'>
-                            <div class='cal-date'>{day.day}</div>
-                            <div class='cal-pnl {pnl_class}'>{pnl_str}</div>
-                            <div class='cal-trades'>{trade_str}</div>
-                        </td>
-                        """
+                        html += f"<td class='cal-cell'><div class='cal-date'>{day.day}</div><div class='cal-pnl {pnl_class}'>{pnl_str}</div><div class='cal-trades'>{trade_str}</div></td>"
 
                 wpnl_class = "green" if week_pnl > 0 else "red" if week_pnl < 0 else "zero"
                 wpnl_str = format_currency_cal(week_pnl)
                 wtrade_str = f"{week_trades} trades" if week_trades != 1 else "1 trade"
 
-                html += f"""
-                <td class='cal-cell cal-week-total'>
-                    <div class='cal-week-label'>Week {week_num}</div>
-                    <div class='cal-week-pnl {wpnl_class}'>{wpnl_str}</div>
-                    <div class='cal-week-trades'>{wtrade_str}</div>
-                </td>
-                """
+                html += f"<td class='cal-cell cal-week-total'><div class='cal-week-label'>Week {week_num}</div><div class='cal-week-pnl {wpnl_class}'>{wpnl_str}</div><div class='cal-week-trades'>{wtrade_str}</div></td>"
                 html += "</tr>"
                 week_num += 1
 
