@@ -2,9 +2,14 @@ import time
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
-from modules.data import fetch_watchlist_enrichMENT, load_market_monitor_data, fetch_nifty500_close_on_date
+from modules.data import (
+    fetch_watchlist_enrichMENT,
+    load_market_monitor_data,
+    fetch_nifty500_close_on_date,
+)
 from modules.state import save_tradebook
 from modules.styling import get_left_aligned_column_config
+
 
 def render_tradebook_tab():
     st.subheader("📓 Tradebook & Institutional Risk Journal")
@@ -20,7 +25,7 @@ def render_tradebook_tab():
     # Load market monitor for Nifty 500 benchmark lookup
     df_mm_tb = load_market_monitor_data()
 
-    # Enrich open trades with live prices from TV or Watchlist map
+    # Enrich open trades with live prices from TradingView API
     open_trade_tickers = [
         t["ticker"] for t in all_trades if t.get("status") == "OPEN"
     ]
@@ -28,9 +33,14 @@ def render_tradebook_tab():
     if open_trade_tickers:
         enriched_tb = fetch_watchlist_enrichMENT(open_trade_tickers)
         if not enriched_tb.empty and "Close" in enriched_tb.columns:
-            live_price_map = dict(
-                zip(enriched_tb["name"].str.upper(), enriched_tb["Close"])
-            )
+            for _, erow in enriched_tb.iterrows():
+                p = erow.get("Close")
+                sym_name = str(erow.get("name", "")).strip().upper()
+                if pd.notna(p) and p > 0:
+                    live_price_map[sym_name] = float(p)
+                    if "exchange" in erow and pd.notna(erow["exchange"]):
+                        full_tv_sym = f"{erow['exchange']}:{sym_name}"
+                        live_price_map[full_tv_sym] = float(p)
 
     # Calculate Cash, Portfolio Values, and Risk Metrics
     cash_balance = starting_cap
@@ -81,7 +91,6 @@ def render_tradebook_tab():
         sl_num_shared = trade_signatures[sig]
 
         unit_risk = max(0.01, b_price - sl_price)
-        risk_1r_initial = sh_bought * unit_risk
 
         nifty_buy_close = float(
             tr.get(
@@ -91,10 +100,13 @@ def render_tradebook_tab():
         )
 
         if status == "OPEN":
+            # Priority: Live market lookup -> stored current price -> buy price
             curr_price = float(
-                live_price_map.get(clean_sym, tr.get("current_price", b_price))
+                live_price_map.get(
+                    clean_sym,
+                    live_price_map.get(ticker, tr.get("current_price", b_price)),
+                )
             )
-            sold_price = None
             date_s = "N/A"
 
             capital_invested = sh_rem * b_price
@@ -236,6 +248,7 @@ def render_tradebook_tab():
     )
     alpha_pct = portfolio_net_return_pct - bench_net_return_pct
 
+    # --- TOP METRICS BAR ---
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.metric("Starting Capital", f"₹{starting_cap:,.2f}", f"Cash: ₹{cash_balance:,.2f}")
@@ -272,6 +285,7 @@ def render_tradebook_tab():
 
     st.markdown("---")
 
+    # --- DIALOG MODALS ---
     @st.dialog("➕ Log New Position Entry", width="medium")
     def show_buy_modal():
         active_wl = st.session_state.get(
@@ -452,6 +466,7 @@ def render_tradebook_tab():
         tb_filter = st.radio("Display Filter:", options=["All Positions", "Open Positions Only", "Closed Trades Only"], horizontal=True)
 
     df_tb_display = pd.DataFrame(processed_trade_rows)
+
     if df_tb_display.empty:
         st.info("Your Tradebook is empty! Click **'➕ Log New Buy'** above to record your first position.")
     else:
@@ -460,6 +475,7 @@ def render_tradebook_tab():
         elif tb_filter == "Closed Trades Only":
             df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("WIN|LOSS|SCRATCH")]
 
+        # Calculate Allocation % dynamically based on total NAV
         if total_portfolio_nav > 0:
             df_tb_display["Allocation %"] = df_tb_display["Current Value (₹)"].apply(
                 lambda v: (v / total_portfolio_nav) * 100 if v > 0 else 0.0
@@ -467,12 +483,35 @@ def render_tradebook_tab():
         else:
             df_tb_display["Allocation %"] = 0.0
 
+        # --- REQUIREMENT 2: S.No. DEDUPLICATION (Show number once per setup group) ---
+        seen_snos = set()
+        sno_display_list = []
+        for sno in df_tb_display["S.No._num"]:
+            if sno not in seen_snos:
+                seen_snos.add(sno)
+                sno_display_list.append(str(sno))
+            else:
+                sno_display_list.append("")
+        df_tb_display["S.No."] = sno_display_list
+
+        # --- REQUIREMENT 1 & 4: ROUND ALL NUMERIC / MONETARY COLUMNS TO 2 DECIMALS ---
+        float_cols_2dec = [
+            "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
+            "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
+            "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)",
+            "Current Value (₹)", "Allocation %"
+        ]
+        for fc in float_cols_2dec:
+            if fc in df_tb_display.columns:
+                df_tb_display[fc] = pd.to_numeric(df_tb_display[fc], errors="coerce").round(2)
+
         tb_table_columns = [
-            "S.No._num", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
+            "S.No.", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
             "Initial SL (₹)", "Current / Sold Price (₹)", "Gain / Loss (₹)", "Realized R",
             "Shares Sold", "Booked Value (₹)", "Realised Gains (₹)", "Shares Remaining",
             "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)", "Current Value (₹)", "Allocation %",
         ]
+
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
         st.dataframe(
             df_tb_display[tb_table_columns],
@@ -482,6 +521,7 @@ def render_tradebook_tab():
             column_config=get_left_aligned_column_config(tb_table_columns),
         )
 
+        # --- INSTITUTIONAL PERFORMANCE ANALYTICS ---
         st.markdown("---")
         st.subheader("📊 Elite Risk Management & Performance Analytics")
 
@@ -551,29 +591,33 @@ def render_tradebook_tab():
         with k7: st.metric("Avg Days Held (Losers)", f"{avg_days_loss:.1f} Days")
         with k8: st.metric("Progressive Exposure Streak", streak_label)
 
+        # --- REQUIREMENT 3: TRADING PERFORMANCE CALENDAR & WEEKLY LEDGER (Exact Match to image_911bd3.png) ---
         st.markdown("---")
         st.subheader("📅 Trading Performance Calendar & Weekly Ledger")
+        
         if total_closed == 0:
             st.info("No closed trades available to generate the Trading Calendar yet.")
         else:
             df_closed_cal = pd.DataFrame(closed_lots)
             df_closed_cal["Date_DT"] = pd.to_datetime(df_closed_cal["Date Sold"], errors="coerce")
-            df_closed_cal = df_closed_cal.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=False)
+            # Sort chronologically ascending to match image_911bd3.png
+            df_closed_cal = df_closed_cal.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
 
             daily_agg = (
-                df_closed_cal.groupby(df_closed_cal["Date_DT"].dt.strftime("%Y-%m-%d"))
+                df_closed_cal.groupby("Date Sold", sort=True)
                 .agg(
                     Trades=("Ticker", "count"),
                     Realised_Gains=("Realised Gains (₹)", "sum"),
                     Wins=("Realised Gains (₹)", lambda s: (s > 0).sum()),
                 ).reset_index()
             )
-            daily_agg.columns = ["Date Sold", "Trades", "Realised Gains (₹)", "Wins"]
-            daily_agg["Win Rate %"] = ((daily_agg["Wins"] / daily_agg["Trades"].clip(lower=1)) * 100).round(1)
             daily_agg["Day"] = pd.to_datetime(daily_agg["Date Sold"]).dt.day_name().str[:3]
+            daily_agg["Win Rate %"] = ((daily_agg["Wins"] / daily_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
+            daily_agg["Realised Gains (₹)"] = daily_agg["Realised Gains (₹)"].round(2)
             daily_agg["Status"] = daily_agg["Realised Gains (₹)"].apply(
-                lambda v: "🔵 +₹" + f"{v:,.0f}" if v > 0 else "🔴 -₹" + f"{abs(v):,.0f}"
+                lambda v: f"🔵 +₹{v:,.0f}" if v > 0 else (f"🔴 -₹{abs(v):,.0f}" if v < 0 else "⚪ ₹0")
             )
+
             daily_display_cols = ["Date Sold", "Day", "Trades", "Realised Gains (₹)", "Win Rate %", "Status"]
 
             df_closed_cal["ISO_Week"] = df_closed_cal["Date_DT"].dt.strftime("%Y-W%V")
@@ -586,13 +630,27 @@ def render_tradebook_tab():
                 ).reset_index()
             )
             weekly_agg.columns = ["ISO Week", "Trades", "Realised Gains (₹)", "Wins"]
-            weekly_agg["Win Rate %"] = ((weekly_agg["Wins"] / weekly_agg["Trades"].clip(lower=1)) * 100).round(1)
+            weekly_agg["Win Rate %"] = ((weekly_agg["Wins"] / weekly_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
+            weekly_agg["Realised Gains (₹)"] = weekly_agg["Realised Gains (₹)"].round(2)
             weekly_agg["Status"] = weekly_agg["Realised Gains (₹)"].apply(lambda v: "🔵 GREEN WEEK" if v > 0 else "🔴 RED WEEK")
             weekly_agg = weekly_agg.sort_values(by="ISO Week", ascending=False)
+            
             weekly_display_cols = ["ISO Week", "Trades", "Realised Gains (₹)", "Win Rate %", "Status"]
 
             tab_day_cal, tab_week_cal = st.tabs(["📅 Daily P&L Calendar", "🗓️ Weekly Performance Matrix"])
             with tab_day_cal:
-                st.dataframe(daily_agg[daily_display_cols], use_container_width=True, hide_index=True, height=280, column_config=get_left_aligned_column_config(daily_display_cols))
+                st.dataframe(
+                    daily_agg[daily_display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=280,
+                    column_config=get_left_aligned_column_config(daily_display_cols),
+                )
             with tab_week_cal:
-                st.dataframe(weekly_agg[weekly_display_cols], use_container_width=True, hide_index=True, height=280, column_config=get_left_aligned_column_config(weekly_display_cols))
+                st.dataframe(
+                    weekly_agg[weekly_display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=280,
+                    column_config=get_left_aligned_column_config(weekly_display_cols),
+                )
