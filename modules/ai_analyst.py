@@ -234,3 +234,56 @@ Rotation: {rot_text}
         return entry
     except Exception:
         return None
+@st.dialog("🧠 Minervini Fundamental AI Analyst", width="large")
+def show_fundamental_modal(ticker_symbol):
+    clean_sym = (
+        ticker_symbol.split(":")[-1].strip().upper()
+        if ":" in str(ticker_symbol)
+        else str(ticker_symbol).strip().upper()
+    )
+    rep = st.session_state.fundamental_reports.get(clean_sym)
+
+    if not rep:
+        st.info(
+            f"No stored report for **{clean_sym}**. Check its row in the table"
+            " below and click 'Analyze Selected'!"
+        )
+    else:
+        st.subheader(f"📊 {clean_sym} — {rep.get('verdict', 'N/A')}")
+        st.caption(
+            f"📅 Generated On: **{rep.get('date', 'N/A')}** | 💡 Zero tokens"
+            " spent on load"
+        )
+        st.markdown("---")
+        st.markdown(rep.get("report_md", ""))
+        st.markdown("---")
+
+        col_pdf, col_re = st.columns([1, 1])
+
+        with col_pdf:
+            pdf_bytes = create_pdf_bytes(clean_sym, rep.get("report_md", ""))
+            st.download_button(
+                label=f"📥 Download {clean_sym} Report (PDF)",
+                data=pdf_bytes,
+                file_name=f"{clean_sym}_Minervini_Fundamental_Report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+            )
+
+        with col_re:
+            if st.button(
+                "🔄 Re-Analyze & Overwrite (Quarterly Refresh)",
+                type="secondary",
+                use_container_width=True,
+            ):
+                with st.spinner(
+                    f"📡 Fetching latest Screener.in PDFs & replacing {clean_sym}"
+                    " report..."
+                ):
+                    updated_rep = run_gemini_fundamental_analysis(
+                        clean_sym, st.session_state.fundamental_reports
+                    )
+                    if updated_rep:
+                        st.success("✅ Old report replaced with latest quarterly data!")
+                        st.rerun()
