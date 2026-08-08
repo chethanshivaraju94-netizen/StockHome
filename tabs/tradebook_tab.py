@@ -2,11 +2,8 @@ import time
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
-from modules.data import (
-    fetch_watchlist_enrichMENT,
-    load_market_monitor_data,
-    fetch_nifty500_close_on_date,
-)
+from tradingview_screener import Query, col
+from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
 from modules.state import save_tradebook
 from modules.styling import get_left_aligned_column_config
 
@@ -25,22 +22,37 @@ def render_tradebook_tab():
     # Load market monitor for Nifty 500 benchmark lookup
     df_mm_tb = load_market_monitor_data()
 
-    # Enrich open trades with live prices from TradingView API
+    # Enrich open trades with live prices explicitly matching exchange
     open_trade_tickers = [
         t["ticker"] for t in all_trades if t.get("status") == "OPEN"
     ]
     live_price_map = {}
     if open_trade_tickers:
-        enriched_tb = fetch_watchlist_enrichMENT(open_trade_tickers)
-        if not enriched_tb.empty and "Close" in enriched_tb.columns:
-            for _, erow in enriched_tb.iterrows():
-                p = erow.get("Close")
-                sym_name = str(erow.get("name", "")).strip().upper()
-                if pd.notna(p) and p > 0:
-                    live_price_map[sym_name] = float(p)
-                    if "exchange" in erow and pd.notna(erow["exchange"]):
-                        full_tv_sym = f"{erow['exchange']}:{sym_name}"
-                        live_price_map[full_tv_sym] = float(p)
+        bare_names = [
+            t.split(":")[-1].strip().upper() if ":" in t else t.strip().upper()
+            for t in open_trade_tickers
+        ]
+        try:
+            q = (
+                Query()
+                .set_markets("india")
+                .select("name", "close", "exchange")
+                .where(col("name").isin(bare_names))
+            )
+            _, df_live = q.get_scanner_data()
+            if not df_live.empty:
+                for _, r in df_live.iterrows():
+                    sym = str(r.get("name", "")).strip().upper()
+                    exc = str(r.get("exchange", "")).strip().upper()
+                    p = r.get("close")
+                    if pd.notna(p) and p > 0:
+                        # Store exact exchange mapping to prevent BSE/NSE price mismatch
+                        live_price_map[f"{exc}:{sym}"] = float(p)
+                        # Keep a fallback for bare symbols
+                        if sym not in live_price_map:
+                            live_price_map[sym] = float(p)
+        except Exception:
+            pass
 
     # Calculate Cash, Portfolio Values, and Risk Metrics
     cash_balance = starting_cap
@@ -76,8 +88,8 @@ def render_tradebook_tab():
 
     for idx, tr in enumerate(all_trades, 1):
         status = tr.get("status", "OPEN")
-        ticker = tr.get("ticker", "N/A")
-        clean_sym = ticker.split(":")[-1].strip().upper()
+        ticker = tr.get("ticker", "N/A").strip().upper()
+        clean_sym = ticker.split(":")[-1] if ":" in ticker else ticker
 
         sh_bought = int(tr.get("shares_bought", 0))
         sh_sold = int(tr.get("shares_sold", 0))
@@ -100,11 +112,11 @@ def render_tradebook_tab():
         )
 
         if status == "OPEN":
-            # Priority: Live market lookup -> stored current price -> buy price
+            # Priority: Exact Exchange Match -> Bare Symbol Match -> Stored Price
             curr_price = float(
                 live_price_map.get(
-                    clean_sym,
-                    live_price_map.get(ticker, tr.get("current_price", b_price)),
+                    ticker,
+                    live_price_map.get(clean_sym, tr.get("current_price", b_price)),
                 )
             )
             date_s = "N/A"
@@ -483,7 +495,7 @@ def render_tradebook_tab():
         else:
             df_tb_display["Allocation %"] = 0.0
 
-        # --- REQUIREMENT 2: S.No. DEDUPLICATION (Show number once per setup group) ---
+        # Group S.No. to prevent repeating numbers for partial exits
         seen_snos = set()
         sno_display_list = []
         for sno in df_tb_display["S.No._num"]:
@@ -494,7 +506,7 @@ def render_tradebook_tab():
                 sno_display_list.append("")
         df_tb_display["S.No."] = sno_display_list
 
-        # --- REQUIREMENT 1 & 4: ROUND ALL NUMERIC / MONETARY COLUMNS TO 2 DECIMALS ---
+        # Strictly enforce 2-decimal rounding for mathematical cleanliness
         float_cols_2dec = [
             "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
             "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
@@ -591,7 +603,7 @@ def render_tradebook_tab():
         with k7: st.metric("Avg Days Held (Losers)", f"{avg_days_loss:.1f} Days")
         with k8: st.metric("Progressive Exposure Streak", streak_label)
 
-        # --- REQUIREMENT 3: TRADING PERFORMANCE CALENDAR & WEEKLY LEDGER (Exact Match to image_911bd3.png) ---
+        # --- TRADING PERFORMANCE CALENDAR & WEEKLY LEDGER ---
         st.markdown("---")
         st.subheader("📅 Trading Performance Calendar & Weekly Ledger")
         
@@ -600,7 +612,8 @@ def render_tradebook_tab():
         else:
             df_closed_cal = pd.DataFrame(closed_lots)
             df_closed_cal["Date_DT"] = pd.to_datetime(df_closed_cal["Date Sold"], errors="coerce")
-            # Sort chronologically ascending to match image_911bd3.png
+            
+            # Sort chronologically ascending to maintain matrix order
             df_closed_cal = df_closed_cal.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
 
             daily_agg = (
@@ -611,6 +624,8 @@ def render_tradebook_tab():
                     Wins=("Realised Gains (₹)", lambda s: (s > 0).sum()),
                 ).reset_index()
             )
+            daily_agg.rename(columns={"Realised_Gains": "Realised Gains (₹)"}, inplace=True)
+            
             daily_agg["Day"] = pd.to_datetime(daily_agg["Date Sold"]).dt.day_name().str[:3]
             daily_agg["Win Rate %"] = ((daily_agg["Wins"] / daily_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
             daily_agg["Realised Gains (₹)"] = daily_agg["Realised Gains (₹)"].round(2)
@@ -629,7 +644,8 @@ def render_tradebook_tab():
                     Wins=("Realised Gains (₹)", lambda s: (s > 0).sum()),
                 ).reset_index()
             )
-            weekly_agg.columns = ["ISO Week", "Trades", "Realised Gains (₹)", "Wins"]
+            weekly_agg.rename(columns={"ISO_Week": "ISO Week", "Realised_Gains": "Realised Gains (₹)"}, inplace=True)
+            
             weekly_agg["Win Rate %"] = ((weekly_agg["Wins"] / weekly_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
             weekly_agg["Realised Gains (₹)"] = weekly_agg["Realised Gains (₹)"].round(2)
             weekly_agg["Status"] = weekly_agg["Realised Gains (₹)"].apply(lambda v: "🔵 GREEN WEEK" if v > 0 else "🔴 RED WEEK")
@@ -638,6 +654,7 @@ def render_tradebook_tab():
             weekly_display_cols = ["ISO Week", "Trades", "Realised Gains (₹)", "Win Rate %", "Status"]
 
             tab_day_cal, tab_week_cal = st.tabs(["📅 Daily P&L Calendar", "🗓️ Weekly Performance Matrix"])
+            
             with tab_day_cal:
                 st.dataframe(
                     daily_agg[daily_display_cols],
@@ -646,6 +663,7 @@ def render_tradebook_tab():
                     height=280,
                     column_config=get_left_aligned_column_config(daily_display_cols),
                 )
+                
             with tab_week_cal:
                 st.dataframe(
                     weekly_agg[weekly_display_cols],
