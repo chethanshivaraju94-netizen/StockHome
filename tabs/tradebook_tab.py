@@ -349,16 +349,18 @@ def render_tradebook_tab():
             final_ticker = custom_ticker.strip().upper() if custom_ticker.strip() else sel_ticker
 
             b_date = st.date_input("Date Bought:", value=date.today())
-            b_shares = st.number_input("Shares Bought:", min_value=1, value=100, step=1)
-            b_price = st.number_input("Buy Price (₹):", min_value=0.1, value=100.0, step=1.0)
-            b_sl = st.number_input("Initial Stop Loss Price (₹):", min_value=0.01, value=round(b_price * 0.92, 2), step=1.0)
+            
+            # Static defaults decoupled to prevent Streamlit widget overwrites on form submit
+            b_shares = st.number_input("Shares Bought:", min_value=1, value=1, step=1)
+            b_price = st.number_input("Buy Price (₹):", min_value=0.0, value=0.0, step=1.0)
+            b_sl = st.number_input("Initial Stop Loss Price (₹):", min_value=0.0, value=0.0, step=1.0)
 
             outlay = b_shares * b_price
             risk_amount = b_shares * (b_price - b_sl)
             st.caption(f"💡 Total Outlay: **₹{outlay:,.2f}** | Initial Risk (1R): **₹{risk_amount:,.2f}**")
 
             if st.form_submit_button("💾 Save Position Entry", use_container_width=True):
-                if final_ticker:
+                if final_ticker and b_price > 0:
                     date_s_str = b_date.strftime("%Y-%m-%d")
                     nifty_close_buy = fetch_nifty500_close_on_date(date_s_str, df_mm_tb)
 
