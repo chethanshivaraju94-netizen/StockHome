@@ -1,4 +1,5 @@
 import time
+import calendar
 from datetime import datetime, date
 import pandas as pd
 import streamlit as st
@@ -6,6 +7,24 @@ from tradingview_screener import Query, col
 from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
 from modules.state import save_tradebook
 from modules.styling import get_left_aligned_column_config
+
+
+def format_currency_cal(val):
+    if val == 0:
+        return "₹0"
+    sign = "+" if val > 0 else "-"
+    abs_val = abs(val)
+    if abs_val >= 10000000:
+        return f"{sign}₹{abs_val/10000000:.2f}Cr"
+    elif abs_val >= 100000:
+        return f"{sign}₹{abs_val/100000:.2f}L"
+    elif abs_val >= 1000:
+        if abs_val % 1000 >= 100:
+            return f"{sign}₹{abs_val/1000:.1f}K"
+        else:
+            return f"{sign}₹{abs_val/1000:.0f}K"
+    else:
+        return f"{sign}₹{abs_val:.0f}"
 
 
 def render_tradebook_tab():
@@ -46,9 +65,7 @@ def render_tradebook_tab():
                     exc = str(r.get("exchange", "")).strip().upper()
                     p = r.get("close")
                     if pd.notna(p) and p > 0:
-                        # Store exact exchange mapping to prevent BSE/NSE price mismatch
                         live_price_map[f"{exc}:{sym}"] = float(p)
-                        # Keep a fallback for bare symbols
                         if sym not in live_price_map:
                             live_price_map[sym] = float(p)
         except Exception:
@@ -112,7 +129,6 @@ def render_tradebook_tab():
         )
 
         if status == "OPEN":
-            # Priority: Exact Exchange Match -> Bare Symbol Match -> Stored Price
             curr_price = float(
                 live_price_map.get(
                     ticker,
@@ -506,7 +522,7 @@ def render_tradebook_tab():
                 sno_display_list.append("")
         df_tb_display["S.No."] = sno_display_list
 
-        # Strictly enforce 2-decimal rounding for mathematical cleanliness
+        # Strictly enforce 2-decimal rounding
         float_cols_2dec = [
             "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
             "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
@@ -603,72 +619,109 @@ def render_tradebook_tab():
         with k7: st.metric("Avg Days Held (Losers)", f"{avg_days_loss:.1f} Days")
         with k8: st.metric("Progressive Exposure Streak", streak_label)
 
-        # --- TRADING PERFORMANCE CALENDAR & WEEKLY LEDGER ---
+        # --- TRADING PERFORMANCE VISUAL CALENDAR ---
         st.markdown("---")
-        st.subheader("📅 Trading Performance Calendar & Weekly Ledger")
+        st.subheader("📅 Trading Performance Calendar")
         
         if total_closed == 0:
             st.info("No closed trades available to generate the Trading Calendar yet.")
         else:
             df_closed_cal = pd.DataFrame(closed_lots)
             df_closed_cal["Date_DT"] = pd.to_datetime(df_closed_cal["Date Sold"], errors="coerce")
-            
-            # Sort chronologically ascending to maintain matrix order
             df_closed_cal = df_closed_cal.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
 
-            daily_agg = (
-                df_closed_cal.groupby("Date Sold", sort=True)
-                .agg(
-                    Trades=("Ticker", "count"),
-                    Realised_Gains=("Realised Gains (₹)", "sum"),
-                    Wins=("Realised Gains (₹)", lambda s: (s > 0).sum()),
-                ).reset_index()
-            )
-            daily_agg.rename(columns={"Realised_Gains": "Realised Gains (₹)"}, inplace=True)
-            
-            daily_agg["Day"] = pd.to_datetime(daily_agg["Date Sold"]).dt.day_name().str[:3]
-            daily_agg["Win Rate %"] = ((daily_agg["Wins"] / daily_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
-            daily_agg["Realised Gains (₹)"] = daily_agg["Realised Gains (₹)"].round(2)
-            daily_agg["Status"] = daily_agg["Realised Gains (₹)"].apply(
-                lambda v: f"🔵 +₹{v:,.0f}" if v > 0 else (f"🔴 -₹{abs(v):,.0f}" if v < 0 else "⚪ ₹0")
-            )
+            df_closed_cal['Month_Year'] = df_closed_cal['Date_DT'].dt.strftime('%b %Y')
+            months = df_closed_cal['Month_Year'].unique().tolist()
+            months.reverse() # Show latest month first
 
-            daily_display_cols = ["Date Sold", "Day", "Trades", "Realised Gains (₹)", "Win Rate %", "Status"]
+            cal_col1, cal_col2 = st.columns([1, 3])
+            with cal_col1:
+                selected_month_str = st.selectbox("Select Month to Display", months, label_visibility="collapsed")
+            
+            selected_dt = datetime.strptime(selected_month_str, '%b %Y')
+            target_year, target_month = selected_dt.year, selected_dt.month
 
-            df_closed_cal["ISO_Week"] = df_closed_cal["Date_DT"].dt.strftime("%Y-W%V")
-            weekly_agg = (
-                df_closed_cal.groupby("ISO_Week")
-                .agg(
-                    Trades=("Ticker", "count"),
-                    Realised_Gains=("Realised Gains (₹)", "sum"),
-                    Wins=("Realised Gains (₹)", lambda s: (s > 0).sum()),
-                ).reset_index()
-            )
-            weekly_agg.rename(columns={"ISO_Week": "ISO Week", "Realised_Gains": "Realised Gains (₹)"}, inplace=True)
+            # Filter data for selected month
+            month_data = df_closed_cal[(df_closed_cal['Date_DT'].dt.year == target_year) & (df_closed_cal['Date_DT'].dt.month == target_month)]
+            monthly_pnl = month_data['Realised Gains (₹)'].sum()
+            monthly_trades = month_data['Ticker'].count()
             
-            weekly_agg["Win Rate %"] = ((weekly_agg["Wins"] / weekly_agg["Trades"].clip(lower=1)) * 100).round(0).astype(int)
-            weekly_agg["Realised Gains (₹)"] = weekly_agg["Realised Gains (₹)"].round(2)
-            weekly_agg["Status"] = weekly_agg["Realised Gains (₹)"].apply(lambda v: "🔵 GREEN WEEK" if v > 0 else "🔴 RED WEEK")
-            weekly_agg = weekly_agg.sort_values(by="ISO Week", ascending=False)
-            
-            weekly_display_cols = ["ISO Week", "Trades", "Realised Gains (₹)", "Win Rate %", "Status"]
+            monthly_color_hex = "#63BE7B" if monthly_pnl > 0 else "#F8696B" if monthly_pnl < 0 else "#A0A5B5"
 
-            tab_day_cal, tab_week_cal = st.tabs(["📅 Daily P&L Calendar", "🗓️ Weekly Performance Matrix"])
-            
-            with tab_day_cal:
-                st.dataframe(
-                    daily_agg[daily_display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=280,
-                    column_config=get_left_aligned_column_config(daily_display_cols),
-                )
-                
-            with tab_week_cal:
-                st.dataframe(
-                    weekly_agg[weekly_display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=280,
-                    column_config=get_left_aligned_column_config(weekly_display_cols),
-                )
+            with cal_col2:
+                st.markdown(f"<div style='text-align: right; padding-top: 5px; color: #A0A5B5; font-size: 14px;'>Monthly P&L: <span style='color: {monthly_color_hex}; font-weight: bold;'>{format_currency_cal(monthly_pnl)}</span> ({monthly_trades} {'trade' if monthly_trades == 1 else 'trades'})</div>", unsafe_allow_html=True)
+
+            cal = calendar.Calendar(firstweekday=6) # 6 = Sunday Start
+            month_days = cal.monthdatescalendar(target_year, target_month)
+
+            daily_pnl = df_closed_cal.groupby(df_closed_cal["Date_DT"].dt.date).agg(
+                pnl=("Realised Gains (₹)", "sum"),
+                trades=("Ticker", "count")
+            ).to_dict('index')
+
+            html = """
+            <style>
+            .cal-wrapper { overflow-x: auto; margin-top: 10px; padding-bottom: 10px; }
+            .cal-container { width: 100%; border-collapse: separate; border-spacing: 8px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-width: 800px; }
+            .cal-header th { text-align: center; padding: 5px; font-weight: 600; color: #A0A5B5; font-size: 13px; text-transform: uppercase; }
+            .cal-cell { background-color: #1E222D; border: 1px solid #2B2F3E; border-radius: 6px; padding: 10px; width: 12.5%; height: 95px; vertical-align: top; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+            .cal-cell-empty { background-color: transparent; border: none; box-shadow: none; }
+            .cal-date { text-align: right; font-size: 13px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600;}
+            .cal-pnl { font-size: 16px; font-weight: 700; text-align: left; margin-top: 10px;}
+            .cal-pnl.green { color: #63BE7B; }
+            .cal-pnl.red { color: #F8696B; }
+            .cal-pnl.zero { color: #7B8191; }
+            .cal-trades { font-size: 12px; color: #A0A5B5; text-align: left; margin-top: 4px; }
+            .cal-week-total { background-color: #262A38; border: 1px solid #363B4E; }
+            .cal-week-label { text-align: center; font-size: 12px; color: #A0A5B5; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;}
+            .cal-week-pnl { text-align: center; font-size: 16px; font-weight: 700; margin-top: 10px; }
+            .cal-week-trades { text-align: center; font-size: 12px; color: #A0A5B5; margin-top: 4px; }
+            </style>
+            <div class='cal-wrapper'>
+            <table class='cal-container'>
+            <tr class='cal-header'><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Week Total</th></tr>
+            """
+
+            week_num = 1
+            for week in month_days:
+                html += "<tr>"
+                week_pnl = 0
+                week_trades = 0
+                for day in week:
+                    if day.month != target_month:
+                        html += "<td class='cal-cell cal-cell-empty'></td>"
+                    else:
+                        day_data = daily_pnl.get(day, {'pnl': 0, 'trades': 0})
+                        pnl = day_data['pnl']
+                        trades = day_data['trades']
+                        week_pnl += pnl
+                        week_trades += trades
+
+                        pnl_class = "green" if pnl > 0 else "red" if pnl < 0 else "zero"
+                        pnl_str = format_currency_cal(pnl)
+                        trade_str = f"{trades} trades" if trades != 1 else "1 trade"
+
+                        html += f"""
+                        <td class='cal-cell'>
+                            <div class='cal-date'>{day.day}</div>
+                            <div class='cal-pnl {pnl_class}'>{pnl_str}</div>
+                            <div class='cal-trades'>{trade_str}</div>
+                        </td>
+                        """
+
+                wpnl_class = "green" if week_pnl > 0 else "red" if week_pnl < 0 else "zero"
+                wpnl_str = format_currency_cal(week_pnl)
+                wtrade_str = f"{week_trades} trades" if week_trades != 1 else "1 trade"
+
+                html += f"""
+                <td class='cal-cell cal-week-total'>
+                    <div class='cal-week-label'>Week {week_num}</div>
+                    <div class='cal-week-pnl {wpnl_class}'>{wpnl_str}</div>
+                    <div class='cal-week-trades'>{wtrade_str}</div>
+                </td>
+                """
+                html += "</tr>"
+                week_num += 1
+
+            html += "</table></div>"
+            st.markdown(html, unsafe_allow_html=True)
