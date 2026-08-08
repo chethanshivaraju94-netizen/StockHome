@@ -92,8 +92,6 @@ def render_tradebook_tab():
     )
 
     processed_trade_rows = []
-
-    # Unique Signature Logic for S.No. & Total Setup Counts
     trade_signatures = {}
     sig_counter = 1
 
@@ -313,6 +311,28 @@ def render_tradebook_tab():
 
     st.markdown("---")
 
+    # ==========================================
+    # DATA PROCESSING & TABLE SELECTION LOGIC
+    # ==========================================
+    df_tb_display = pd.DataFrame(processed_trade_rows)
+    tb_filter = st.session_state.get("tb_display_filter", "All Positions")
+
+    if not df_tb_display.empty:
+        if tb_filter == "Open Positions Only":
+            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("OPEN")].reset_index(drop=True)
+        elif tb_filter == "Closed Trades Only":
+            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("WIN|LOSS|SCRATCH")].reset_index(drop=True)
+
+    # Read selected row directly from table interaction
+    selection_state = st.session_state.get("tb_manage_table", {"selection": {"rows": []}})
+    selected_rows = selection_state.get("selection", {}).get("rows", [])
+    
+    selected_trade_id = None
+    if selected_rows and not df_tb_display.empty:
+        idx = selected_rows[0]
+        if idx < len(df_tb_display):
+            selected_trade_id = df_tb_display.iloc[idx]["trade_id"]
+
     # --- DIALOG MODALS ---
     @st.dialog("➕ Log New Position Entry", width="medium")
     def show_buy_modal():
@@ -359,18 +379,23 @@ def render_tradebook_tab():
                     st.rerun()
 
     @st.dialog("➖ Log Exit or Partial Sell", width="medium")
-    def show_sell_modal():
+    def show_sell_modal(preselected_t_id=None):
         open_lots = [t for t in st.session_state.tradebook["trades"] if t.get("status") == "OPEN"]
         if not open_lots:
             st.info("No open trades currently in your Tradebook!")
             return
 
-        lot_options = {
-            (f"{t['ticker']} (Bought {t['date_bought']} | {t['shares_bought'] - t['shares_sold']} shs @ ₹{t['buy_price']})"): t
-            for t in open_lots
-        }
-        sel_label = st.selectbox("Select Active Position Lot to Sell:", options=list(lot_options.keys()))
-        sel_lot = lot_options[sel_label]
+        lot_options = []
+        default_idx = 0
+        for i, t in enumerate(open_lots):
+            lbl = f"{t['ticker']} (Bought {t['date_bought']} | {t['shares_bought'] - t['shares_sold']} shs @ ₹{t['buy_price']})"
+            lot_options.append((lbl, t))
+            if t.get("id") == preselected_t_id:
+                default_idx = i
+
+        lot_labels = [opt[0] for opt in lot_options]
+        sel_label = st.selectbox("Select Active Position Lot to Sell:", options=lot_labels, index=default_idx)
+        sel_lot = next(opt[1] for opt in lot_options if opt[0] == sel_label)
         max_sell = sel_lot["shares_bought"] - sel_lot["shares_sold"]
 
         with st.form("sell_trade_form", clear_on_submit=True):
@@ -411,26 +436,22 @@ def render_tradebook_tab():
                 st.rerun()
 
     @st.dialog("✏️ Edit or Delete Trade", width="medium")
-    def show_edit_modal():
-        if not st.session_state.tradebook["trades"]:
-            st.info("No trades to edit.")
+    def show_edit_modal(t_id):
+        idx = None
+        for i, tr in enumerate(st.session_state.tradebook["trades"]):
+            if tr.get("id") == t_id:
+                idx = i
+                break
+
+        if idx is None:
+            st.error("Trade not found.")
             return
 
-        trade_opts = {}
-        for i, tr in enumerate(st.session_state.tradebook["trades"]):
-            stat = tr.get("status", "OPEN")
-            tick = tr.get("ticker", "")
-            sh_b = tr.get("shares_bought", 0)
-            sh_s = tr.get("shares_sold", 0)
-            bp = tr.get("buy_price", 0)
-            lbl = f"[{stat}] {tick} | Bought {sh_b} shs @ ₹{bp} | Sold {sh_s} shs"
-            trade_opts[lbl] = i
-
-        sel_lbl = st.selectbox("Select Trade to Edit/Delete:", list(trade_opts.keys()))
-        idx = trade_opts[sel_lbl]
         sel_tr = st.session_state.tradebook["trades"][idx]
 
+        st.markdown(f"**Editing Trade:** {sel_tr.get('ticker')} | **Bought:** {sel_tr.get('date_bought')}")
         st.markdown("---")
+        
         with st.form("edit_trade_form"):
             e_status = st.selectbox("Status", ["OPEN", "CLOSED"], index=0 if sel_tr.get("status") == "OPEN" else 1)
             e_tick = st.text_input("Ticker", sel_tr.get("ticker", ""))
@@ -481,28 +502,23 @@ def render_tradebook_tab():
                 st.success("Config updated!")
                 st.rerun()
 
+    # --- TOP ACTION BUTTONS ---
     ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4, ctrl_col5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.0])
     with ctrl_col1:
         if st.button("➕ Log New Buy", type="primary", use_container_width=True): show_buy_modal()
     with ctrl_col2:
-        if st.button("➖ Log Exit / Sell", type="secondary", use_container_width=True): show_sell_modal()
+        if st.button("➖ Log Exit / Sell", type="secondary", use_container_width=True): show_sell_modal(selected_trade_id)
     with ctrl_col3:
-        if st.button("✏️ Edit / Delete", type="secondary", use_container_width=True): show_edit_modal()
+        if st.button("✏️ Edit / Delete", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): 
+            show_edit_modal(selected_trade_id)
     with ctrl_col4:
         if st.button("⚙️ Config Capital", type="secondary", use_container_width=True): show_config_modal()
     with ctrl_col5:
-        tb_filter = st.radio("Display Filter:", options=["All Positions", "Open Positions Only", "Closed Trades Only"], horizontal=True)
-
-    df_tb_display = pd.DataFrame(processed_trade_rows)
+        st.radio("Display Filter:", options=["All Positions", "Open Positions Only", "Closed Trades Only"], horizontal=True, key="tb_display_filter")
 
     if df_tb_display.empty:
         st.info("Your Tradebook is empty! Click **'➕ Log New Buy'** above to record your first position.")
     else:
-        if tb_filter == "Open Positions Only":
-            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("OPEN")]
-        elif tb_filter == "Closed Trades Only":
-            df_tb_display = df_tb_display[df_tb_display["Status"].str.contains("WIN|LOSS|SCRATCH")]
-
         # Calculate Allocation % dynamically based on total NAV
         if total_portfolio_nav > 0:
             df_tb_display["Allocation %"] = df_tb_display["Current Value (₹)"].apply(
@@ -541,11 +557,17 @@ def render_tradebook_tab():
         ]
 
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
+        st.caption("💡 Select a row to Edit, Delete, or Log an Exit.")
+        
+        # Enable row selection
         st.dataframe(
             df_tb_display[tb_table_columns],
             use_container_width=True,
             hide_index=True,
             height=400,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="tb_manage_table",
             column_config=get_left_aligned_column_config(tb_table_columns),
         )
 
@@ -658,7 +680,6 @@ def render_tradebook_tab():
                 trades=("Ticker", "count")
             ).to_dict('index')
 
-            # Build HTML flatly to bypass markdown indentation bugs
             html = "<style>"
             html += ".cal-wrapper { overflow-x: auto; margin-top: 10px; padding-bottom: 10px; }"
             html += ".cal-container { width: 100%; border-collapse: separate; border-spacing: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-width: 800px; }"
