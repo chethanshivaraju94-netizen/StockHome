@@ -359,7 +359,13 @@ def render_screener_tab():
             df_display["_is_circuit_badge"] = cond1 | cond2
             df_display["name"] = df_display["name"].where(~df_display["_is_circuit_badge"], df_display["name"] + " 🚨")
 
-            fund_badge_map = {k: f"{v.get('verdict')} ({v.get('date', '')})" for k, v in st.session_state.fundamental_reports.items()}
+            def format_v(v_str):
+                if v_str == "PASS 🟢": return "🟢 PASS"
+                if v_str == "WATCHLIST 🟡": return "🟡 WATCHLIST"
+                if v_str == "FAIL 🔴": return "🔴 FAIL"
+                return v_str
+
+            fund_badge_map = {k: f"{format_v(v.get('verdict', ''))} ({v.get('date', '')})" for k, v in st.session_state.fundamental_reports.items()}
             df_display["Fundamental"] = df_display["name"].str.replace(" 🚨", "").str.upper().map(fund_badge_map).fillna("⚪ Not Analyzed")
 
             canonical_perf_order = ["Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Perf % YTD", "Perf % 1Y"]
@@ -422,7 +428,7 @@ def render_screener_tab():
                 else:
                     st.button("📖 Select a Single Stock Row to Open Report", type="secondary", disabled=True, use_container_width=True, key=f"fund_btn_view_scan_dis_{rc}_{sc}")
             with f_col2:
-                force_reanalyze_scan = st.checkbox("Force Re-Analyze Existing", value=False, key=f"force_scan_{rc}_{sc}", help="If checked, AI will re-fetch Screener PDFs even if a report already exists.")
+                force_reanalyze_scan = st.checkbox("Force Re-Analyze Existing", value=False, key=f"force_scan_{rc}_{sc}", help="If checked, AI will re-fetch data even if a report already exists.")
             with f_col3:
                 run_batch_scan = st.button(f"⚡ Analyze Selected ({len(selected_rows)})", type="primary", use_container_width=True, disabled=len(selected_rows) == 0, key=f"fund_btn_run_scan_{rc}_{sc}")
 
@@ -434,7 +440,7 @@ def render_screener_tab():
                         if clean_sym in st.session_state.fundamental_reports and not force_reanalyze_scan:
                             status_box.write(f"⏩ **[{idx + 1}/{len(selected_rows)}] {clean_sym}:** Report already exists in Gist.")
                         else:
-                            status_box.write(f"⚙️ **[{idx + 1}/{len(selected_rows)}] {clean_sym}:** Downloading Screener.in PDFs & Running AI...")
+                            status_box.write(f"⚙️ **[{idx + 1}/{len(selected_rows)}] {clean_sym}:** Extracting live data & Running AI...")
                             run_gemini_fundamental_analysis(clean_sym, st.session_state.fundamental_reports, status_log=status_box)
                         p_bar.progress((idx + 1) / len(selected_rows))
                     status_box.update(label="✅ Batch AI Analysis Complete! Updating Table...", state="complete", expanded=True)
