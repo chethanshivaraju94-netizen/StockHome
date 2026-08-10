@@ -180,7 +180,22 @@ def render_watchlist_tab():
         # --- DEDUPLICATED WL DOT LOGIC ---
         wl_dot_map_wl = {}
         for wl_name, sym_list in st.session_state.watchlists.items():
-            dot = "🔵" if "breakout" in wl_name.lower() else ("🟢" if "focus" in wl_name.lower() else ("🟡" if "weekly" in wl_name.lower() else ("🟠" if "bulk" in wl_name.lower() else "🔴" if "sold" in wl_name.lower() else "🟣")))
+            wl_lower = wl_name.lower()
+            
+            # Strict Priority: 'weekly' evaluated before 'focus' to prevent overlap bugs
+            if "breakout" in wl_lower:
+                dot = "🔵"
+            elif "weekly" in wl_lower:
+                dot = "🟡"
+            elif "focus" in wl_lower:
+                dot = "🟢"
+            elif "bulk" in wl_lower:
+                dot = "🟠"
+            elif "sold" in wl_lower:
+                dot = "🔴"
+            else:
+                dot = "🟣"
+                
             for s in sym_list:
                 bare_s = s.split(":")[-1].strip().upper()
                 if dot not in wl_dot_map_wl.get(bare_s, ""):
