@@ -1,10 +1,54 @@
+import glob
 import json
+import os
 import smtplib
 import time
+from urllib.parse import urljoin
+from bs4 import BeautifulSoup
 from google import genai
 import markdown
+import requests
 import streamlit as st
 from modules.state import save_fundamental_reports, save_market_briefings
+
+
+# ==========================================
+# 0. FREE STEALTH ROUTING ENGINE
+# ==========================================
+def stealth_request(url, headers, cookies, is_pdf=False, max_retries=3):
+    """
+    Routes traffic through free open-source CORS proxies to bypass Datacenter IP blocks.
+    Limits timeouts to prevent Streamlit from hanging.
+    """
+    # Primary Free Route: AllOrigins (Highly stable for Streamlit Cloud)
+    proxy_url = f"https://api.allorigins.win/raw?url={url}"
+    
+    for attempt in range(max_retries):
+        try:
+            res = requests.get(proxy_url, timeout=20)
+            if res.status_code == 200:
+                if is_pdf and b"%PDF" not in res.content[:100]:
+                    time.sleep(1)
+                    continue
+                return res
+        except Exception:
+            time.sleep(1)
+            continue
+            
+    # Fallback to direct request
+    for attempt in range(max_retries):
+        try:
+            res = requests.get(url, headers=headers, cookies=cookies, timeout=15)
+            if res.status_code == 200:
+                if is_pdf and b"%PDF" not in res.content[:100]:
+                    time.sleep(1)
+                    continue
+                return res
+        except Exception:
+            time.sleep(1)
+            continue
+            
+    return None
 
 
 # ==========================================
@@ -121,12 +165,13 @@ def create_pdf_bytes(ticker, report_md):
 
 
 # ==========================================
-# 2. GEMINI LIVE SEARCH GROUNDING ENGINE
+# 2. GEMINI FUNDAMENTAL AI ANALYST ENGINE
 # ==========================================
 def run_gemini_fundamental_analysis(
     ticker_input, reports_store=None, status_log=None
 ):
     gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+    screener_sid = st.secrets.get("SCREENER_SESSION_ID", "")
     email_addr = st.secrets.get("EMAIL_ADDRESS", "")
     email_pass = st.secrets.get("EMAIL_APP_PASSWORD", "")
 
@@ -137,33 +182,157 @@ def run_gemini_fundamental_analysis(
 
     client = genai.Client(api_key=gemini_key)
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Referer": "https://www.screener.in/",
+    }
+    cookies = {"sessionid": screener_sid}
+
     clean_ticker = (
         ticker_input.split(":")[-1].strip().upper()
         if ":" in str(ticker_input)
         else str(ticker_input).strip().upper()
     )
+    download_dir = "documents"
+    os.makedirs(download_dir, exist_ok=True)
+    for f in glob.glob(f"{download_dir}/*"):
+        os.remove(f)
 
-    if status_log:
-        status_log.write(f"🌐 **{clean_ticker}:** Utilizing Gemini Live Web Search Grounding to extract latest metrics and concall catalysts...")
+    url = f"https://www.screener.in/company/{clean_ticker}/consolidated/"
 
-    prompt = f"""
-You are an uncompromising, strict Mark Minervini-style fundamental analyst. 
-Your sole objective is to analyze the Indian stock **{clean_ticker} (NSE/BSE)** to determine if it meets Minervini's "Superperformance" criteria.
+    try:
+        if status_log:
+            status_log.write(f"📡 **{clean_ticker}:** Routing through open network to bypass firewalls...")
+        
+        response = stealth_request(url, headers, cookies, is_pdf=False)
+        
+        if not response:
+            if status_log:
+                status_log.error(
+                    f"❌ **{clean_ticker}:** Connection blocked by firewalls. Skipping."
+                )
+            return None
 
-### CRITICAL INSTRUCTION: LIVE WEB GROUNDING
-You MUST use your Google Search tool to find the most up-to-date information for **{clean_ticker}**. Search specifically for:
-1. The most recent Quarterly Earnings Results (QoQ and YoY EPS/Sales growth).
-2. Recent Earnings Call Transcript summaries, Management Guidance, and Concall highlights.
-3. Analyst reports or recent financial news regarding upcoming catalysts or order books.
+        soup = BeautifulSoup(response.content, "html.parser")
+        documents_section = soup.find(id="documents")
 
-### STRICT CATALYST & VERDICT RULES
-- **NO CATALYST = NO PASS:** Even if YoY earnings and sales growth are >20%, you CANNOT award a 🟢 PASS if there is no explicit, forward-looking fundamental catalyst identified in recent news, transcripts, or guidance. If growth is strong but no trigger is found, the maximum grade is 🟡 WATCHLIST.
-- **SECTOR-ADAPTIVE CATALYST SEARCH:** Evaluate based on the business model:
-  - *Manufacturing/Infra:* CapEx, plant commissioning, order book.
-  - *Financials:* Credit growth, NIM expansion, AUM growth.
-  - *Tech/SaaS:* Large deal wins (TCV), margin recovery.
-  - *Consumer:* Volume growth, SSSG.
-  - *Pharma:* FDA approvals, new launches.
+        if not documents_section:
+            if status_log:
+                status_log.warning(
+                    f"⚠️ **{clean_ticker}:** No documents section found on Screener.in."
+                )
+            return None
+
+        transcripts, ppts = [], []
+        links = documents_section.find_all("a", href=True)
+
+        for link in links:
+            href = link["href"]
+            text = link.get_text(strip=True).lower()
+
+            if text == "transcript":
+                transcripts.append(("Transcript", href))
+            elif text == "ppt":
+                ppts.append(("PPT", href))
+
+        if status_log:
+            status_log.write(
+                f"Discovered: {len(transcripts)} Transcripts, {len(ppts)} PPTs."
+            )
+
+        state = {"count": 0, "urls": set()}
+
+        def try_download(text, href):
+            if href in state["urls"]:
+                return False
+
+            full_url = (
+                href
+                if href.startswith("http")
+                else urljoin("https://www.screener.in", href)
+            )
+
+            try:
+                doc_response = stealth_request(full_url, headers, cookies, is_pdf=True)
+                if doc_response and b"%PDF" in doc_response.content[:100]:
+                    file_name = f"screener_doc_{state['count'] + 1}.pdf"
+                    file_path = os.path.join(download_dir, file_name)
+                    with open(file_path, "wb") as f:
+                        f.write(doc_response.content)
+                    state["count"] += 1
+                    state["urls"].add(href)
+                    return True
+                else:
+                    if status_log:
+                        status_log.write(f"  -> Skipped {text}: Not a valid PDF.")
+            except Exception as e:
+                if status_log:
+                    status_log.write(f"  -> Skipped {text}: Download error - {e}")
+
+            return False
+
+        tr_count, ppt_count = 0, 0
+
+        # CRITICAL FIX: Skip massive Annual Reports. Only fetch latest 2 Transcripts & 1 PPT.
+        # This keeps the payload under 2MB so Streamlit Cloud never crashes.
+        for t, h in transcripts:
+            if tr_count >= 2: break
+            if try_download("Transcript", h): 
+                tr_count += 1
+
+        for t, h in ppts:
+            if ppt_count >= 1: break
+            if try_download("PPT", h): 
+                ppt_count += 1
+
+        pdf_files = glob.glob(f"{download_dir}/*.pdf")
+        if not pdf_files:
+            if status_log:
+                status_log.error(
+                    f"❌ **{clean_ticker}:** Could not successfully download any valid PDF reports."
+                )
+            return None
+
+        if status_log:
+            status_log.write(
+                f"🤖 **{clean_ticker}:** Uploading official ground-truth documents to Gemini 2.5 Flash..."
+            )
+
+        uploaded_files = []
+        for file_path in pdf_files:
+            uploaded_file = client.files.upload(file=file_path)
+            uploaded_files.append(uploaded_file)
+
+        for f in uploaded_files:
+            while True:
+                file_info = client.files.get(name=f.name)
+                if "ACTIVE" in str(file_info.state).upper():
+                    break
+                time.sleep(2)
+
+        if status_log:
+            status_log.write(f"Analyzing **{clean_ticker}** fundamentals based on official documents...")
+
+        prompt = """
+You are an uncompromising, strict Mark Minervini-style fundamental analyst. Your sole objective is to analyze the provided Investor Presentations and Earnings Call Transcripts to determine if the company meets Minervini's "Superperformance" criteria.
+
+### DATA & GROUND TRUTH RULES
+1. Rely ONLY on the uploaded documents and consider ONLY consolidated financial figures.
+2. Do not speculate, calculate unstated assumptions, or fill gaps from external knowledge.
+3. If any metric or fact is missing from the document, write explicitly: "Not available in uploaded documents."
+
+### STRICT CATALYST & VERDICT RULES (CRITICAL)
+- **NO CATALYST = NO PASS:** Even if YoY earnings and sales growth are >20%, you CANNOT award a 🟢 PASS if there is no explicit, forward-looking fundamental catalyst identified in the transcripts or presentations. If growth is strong but no catalyst/trigger is found, the maximum grade is 🟡 WATCHLIST.
+- **SECTOR-ADAPTIVE CATALYST SEARCH:** Automatically adjust the catalyst criteria based on the company's business model:
+  - *Manufacturing / Auto / Infra:* CapEx completion, plant commissioning, order book growth, raw material margin relief.
+  - *Financials / Banks / NBFCs:* Credit/loan growth acceleration, Net Interest Margin (NIM) expansion, sharp drops in NPAs, strong AUM growth.
+  - *Tech / IT / SaaS:* Large deal wins (TCV), client additions, utilization/margin recovery, geographic expansion.
+  - *Consumer / FMCG / Retail:* Volume growth acceleration (not just price-led), Same-Store Sales Growth (SSSG), store count expansion.
+  - *Pharma / Healthcare:* US FDA approvals, new launches, hospital bed capacity additions, ARPOB growth.
+  - *Platforms / Exchanges:* Market share expansion, active user growth, transaction volume surges.
+- **FORWARD-LOOKING vs. BACKWARD-LOOKING:** Prioritize forward-looking triggers (management guidance, upcoming launches, margin expansions, pipeline) found in recent Earnings Calls over historical reasons in old reports.
+- **Base Verdict ONLY on Available Data:** Do not penalize missing data points, but strictly enforce the presence of a tangible growth catalyst.
 
 ---
 
@@ -172,27 +341,27 @@ You MUST use your Google Search tool to find the most up-to-date information for
 #### 1. HEADER & INSTANT VERDICT
 Provide the company name and an instant decision verdict:
 - **MINERVINI FUNDAMENTAL VERDICT:** [Insert 🟢 PASS / 🟡 WATCHLIST / 🔴 FAIL]
-- **🚀 PRIMARY CATALYST / BREAKOUT TRIGGER:** [State in 1-2 BOLD sentences the exact forward-looking trigger driving this stock based on your live search. If NONE found, state: "⚠️ NO CLEAR FORWARD CATALYST DETECTED"].
-- **VERDICT LOGIC:** [1-2 sentence justification].
-  - 🟢 **PASS:** Available YoY Sales & EPS > 20%, positive acceleration, AND a clear, validated forward catalyst.
-  - 🟡 **WATCHLIST:** Strong growth but NO clear catalyst, OR a Catalyst Override applied.
-  - 🔴 **FAIL:** Confirmed Sales/EPS growth < 20%, decelerating growth, or major red flags.
+- **🚀 PRIMARY CATALYST / BREAKOUT TRIGGER:** [State in 1-2 BOLD sentences the exact forward-looking trigger driving this stock. If NONE found, state: "⚠️ NO CLEAR FORWARD CATALYST DETECTED"].
+- **VERDICT LOGIC:** [Provide a 1-2 sentence justification for the overall verdict].
+  - 🟢 **PASS:** Available YoY Sales & EPS > 20%, positive Code 33 acceleration, AND a clear, validated forward catalyst.
+  - 🟡 **WATCHLIST:** Strong growth but NO clear catalyst, a minor confirmed red flag, OR a Catalyst Override applied.
+  - 🔴 **FAIL:** Confirmed Sales/EPS growth < 20%, decelerating growth, or major red flags without a massive catalyst.
 
 #### 2. SUPERPERFORMANCE SCORECARD
-Present this quick-scan summary table (Use "N/A - Data not found" if missing):
+Present this quick-scan summary table (Use "N/A - Not in Document" if missing):
 
 | Core Pillar | Status | Key Metric / Reason |
 | :--- | :---: | :--- |
-| **1. Growth Velocity (Code 33)** | [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of recent EPS & Sales YoY trajectory] |
-| **2. Forward Catalyst & Triggers** | [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of sector-specific catalyst from recent guidance] |
-| **3. Earnings Quality & Red Flags**| [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of margins, debt, or cash flow concerns] |
+| **1. Growth Velocity (Code 33)** | [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of EPS, Sales, and Net Margin acceleration] |
+| **2. Forward Catalyst & Triggers** | [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of sector-specific catalyst from Concalls/PPTs] |
+| **3. Earnings Quality & Red Flags**| [🟢 / 🟡 / 🔴 / ⚪ N/A] | [1-line summary of receivables, inventory, or cash flow] |
 
 #### 3. BOTTOM LINE UP FRONT (BLUF)
-- **Top Fundamental Strengths:**
+- **Top Fundamental Strengths (from available data):**
   - [Bullet 1]
   - [Bullet 2]
   - [Bullet 3]
-- **Top Red Flags / Concerns:**
+- **Top Red Flags / Concerns (from available data):**
   - [Bullet 1]
   - [Bullet 2]
   - [Bullet 3]
@@ -201,37 +370,57 @@ Present this quick-scan summary table (Use "N/A - Data not found" if missing):
 
 ### DETAILED ANALYSIS BREAKDOWN
 
-Use visual status icons at the start of each bullet: 🟢 Clear Pass | 🔴 Fail/Red Flag | 🟡 Mixed | ⚠️ Warning | ⚪ Data not found
+Use visual status icons at the start of each bullet:
+- 🟢 Clear Pass
+- 🔴 Fail/Red Flag
+- 🟡 Mixed / Catalyst Override Applied
+- ⚠️ Warning/Watch
+- ⚪ Not available in document
+
 Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
 
 #### SECTION 1: Growth Velocity (The Engine)
-* **Latest Quarter YoY Growth:** Exact % values for EPS and Sales growth based on the latest available quarter.
-* **Code 33 Acceleration:** Are EPS, Sales, and Margins accelerating? 
-* **Margin Dynamics:** Are Net and Operating Profit Margins expanding YoY?
-* **Management Guidance:** What did management outline for the next 2-4 quarters in their most recent concall/interview?
+* **Latest Quarter YoY Growth:** Is EPS and Sales growth **>20%**? State exact % values.
+* **Code 33 Acceleration:** Are EPS, Sales, AND Net Margins accelerating compared to prior 2-3 quarters or same quarter last year? (**Yes / No / Data Missing**)
+* **Margin Dynamics:** Are Net and Operating Profit Margins expanding or contracting YoY?
+* **Management Guidance:** Did management raise or confirm strong future outlook/guidance in recent Earnings Calls?
 
-#### SECTION 2: Sector-Adaptive Catalyst & Forward Triggers
-* **Primary Sector Catalyst:** Identify the primary growth driver currently active.
-* **Catalyst Magnitude & Timeline:** Is this a game-changing trigger taking effect soon?
-* **Competitive Advantage:** Is the growth model scalable?
+#### SECTION 2: Sector-Adaptive Catalyst & Forward Triggers (Concall & PPT Extraction)
+* **Primary Sector Catalyst:** Identify the primary growth driver based on the industry (e.g., CapEx/Order Book for Industrial; NIM/Credit growth for Banks; Deal wins/Margins for IT; Volume/SSSG/Stores for Retail; FDA/Launches for Pharma).
+* **Catalyst Magnitude & Timeline:** Is this a game-changing trigger taking effect in the next 1-4 quarters? State exact management commentary or guidance.
+* **Competitive Advantage & Scalability:** Is the growth model scalable without excessive capital burn?
 
 #### SECTION 3: Quality of Earnings & Red Flags
-* ⚠️ **Inventory / Receivables vs Sales:** Any divergence reported in recent financials?
-* **Source of Profit:** Is EPS driven by Top Line revenue or purely cost-cutting?
-* **Debt Load & Solvency:** Any major debt concerns flagged by analysts recently?
+* ⚠️ **Inventory vs. Sales Growth:** Is inventory (especially finished goods) growing faster than sales? State exact growth rate comparison if present (Mark N/A for Banks/Services).
+* ⚠️ **Receivables vs. Sales Growth:** Are accounts receivable growing faster than sales?
+* **Source of Profit:** Is EPS driven by **Top Line revenue**, or by cost-cutting, tax benefits, or "Other Income"?
+* **Debt Load & Solvency:** What is the total debt load (or NPA profile for financials), and can cash flows easily service it?
 """
 
-    try:
-        # Utilizing Live Google Search Grounding to bypass PDF scraping completely
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config={
-                "tools": [{"google_search": {}}],
-                "temperature": 0.2,
-            }
-        )
-        
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[prompt] + uploaded_files,
+                config={"service_tier": "flex", "http_options": {"timeout": 900000}},
+            )
+        except Exception as e:
+            if "tokens allowed" in str(e) or "400" in str(e):
+                if status_log:
+                    status_log.write(
+                        f"   -> OVERLOAD: {clean_ticker} documents are too massive. Retrying with fewer files..."
+                    )
+                reduced_files = uploaded_files[:2]
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[prompt] + reduced_files,
+                    config={
+                        "service_tier": "flex",
+                        "http_options": {"timeout": 900000},
+                    },
+                )
+            else:
+                raise e
+
         analysis_text = response.text
 
         verdict_line = ""
@@ -305,7 +494,7 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
         
     except Exception as e:
         if status_log:
-            status_log.error(f"❌ **{clean_ticker}:** Gemini Search Analysis failed -> {e}")
+            status_log.error(f"❌ **{clean_ticker}:** Analysis failed -> {e}")
         return None
 
 
@@ -329,7 +518,7 @@ def show_fundamental_modal(ticker_symbol):
     else:
         st.subheader(f"📊 {clean_sym} — {rep.get('verdict', 'N/A')}")
         st.caption(
-            f"📅 Generated On: **{rep.get('date', 'N/A')}** | 💡 Live Web Grounded Report"
+            f"📅 Generated On: **{rep.get('date', 'N/A')}** | 💡 Official Document Analysis"
         )
         st.markdown("---")
         st.markdown(rep.get("report_md", ""))
@@ -355,14 +544,15 @@ def show_fundamental_modal(ticker_symbol):
                 use_container_width=True,
             ):
                 with st.spinner(
-                    f"📡 Fetching live data & replacing {clean_sym} report..."
+                    f"📡 Fetching latest official PDFs & replacing {clean_sym}"
+                    " report..."
                 ):
                     updated_rep = run_gemini_fundamental_analysis(
                         clean_sym, st.session_state.fundamental_reports
                     )
                     if updated_rep:
                         st.success(
-                            "✅ Old report replaced with latest data!"
+                            "✅ Old report replaced with latest quarterly data!"
                         )
                         st.rerun()
 
