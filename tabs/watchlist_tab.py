@@ -222,27 +222,16 @@ def render_watchlist_tab():
         wsc = st.session_state.wl_sel_counter
 
         # --- BACKEND SORTING & FILTERING ENGINE ---
-        sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
-        
-        wl_s1, wl_s2, wl_s3 = st.columns([1.5, 0.8, 2.7])
-        with wl_s1:
-            sort_by_wl = st.selectbox("🔀 Sort Watchlist By (Updates Hot-Swap):", options=sort_cols_wl, key=f"wl_sort_{wsc}")
-        with wl_s2:
-            st.write("")
-            st.write("")
-            sort_asc_wl = st.checkbox("Ascending", value=False, key=f"wl_asc_{wsc}")
-        with wl_s3:
-            cross_filter_options = [w for w in wl_names if w != active_wl]
-            cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
-            
-        # Execute Cross-Watchlist Filter
+        sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
+        sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
+        cross_filter_wls = st.session_state.get(f"wl_filter_{wsc}", [])
+
         if cross_filter_wls:
             valid_symbols = set()
             for f_wl in cross_filter_wls:
                 valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
             merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
 
-        # Execute Sorting
         if sort_by_wl != "Original Watchlist Order":
             temp_col = "_temp_sort_col"
             merged_df[temp_col] = pd.to_numeric(merged_df[sort_by_wl], errors="coerce")
@@ -309,11 +298,24 @@ def render_watchlist_tab():
                 st.success(f"✅ Promoted {cnt} stocks to **{promo_target}**!")
                 st.rerun()
 
-        st.markdown("---")
+        sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
+
+        # --- RENDER BACKEND SORTING ENGINE ---
         st.markdown("#### ⚡ 30-Symbol TradingView Hot-Swap Batches")
         st.caption("💡 **Free Tier Bypass Workflow:** In TradingView, press **`Ctrl+A`** → **`Backspace`** → **`Ctrl+V`** in your TV watchlist box to hot-swap 30 stocks at a time!")
 
-        sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
+        sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
+        
+        wl_s1, wl_s2, wl_s3 = st.columns([1.5, 0.8, 2.7])
+        with wl_s1:
+            st.selectbox("🔀 Sort Watchlist By (Updates Hot-Swap):", options=sort_cols_wl, key=f"wl_sort_{wsc}")
+        with wl_s2:
+            st.write("")
+            st.write("")
+            st.checkbox("Ascending", key=f"wl_asc_{wsc}")
+        with wl_s3:
+            cross_filter_options = [w for w in wl_names if w != active_wl]
+            st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
 
         if sorted_tv_symbols:
             batch_size = 30
