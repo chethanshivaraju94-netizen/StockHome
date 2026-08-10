@@ -386,10 +386,12 @@ def render_screener_tab():
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
 
-            # --- BACKEND SORTING & FILTERING ENGINE ---
+            # --- RENDER FILTER AT TOP OF TABLE ---
+            cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=wl_names, key=f"scan_filter_{rc}_{sc}")
+
+            # --- APPLY BACKEND SORTING & FILTERING ---
             sort_by = st.session_state.get(f"scan_sort_{rc}_{sc}", "Original Scan Order")
             sort_asc = st.session_state.get(f"scan_asc_{rc}_{sc}", False)
-            cross_filter_wls = st.session_state.get(f"scan_filter_{rc}_{sc}", [])
 
             if cross_filter_wls:
                 valid_symbols = set()
@@ -481,15 +483,13 @@ def render_screener_tab():
 
             # --- RENDER BACKEND SORTING ENGINE ---
             sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
-            sc_s1, sc_s2, sc_s3 = st.columns([1.5, 0.8, 2.7])
+            sc_s1, sc_s2 = st.columns([1.5, 3.5])
             with sc_s1:
                 st.selectbox("🔀 Sort Results By (Updates Hot-Swap):", options=sort_options, key=f"scan_sort_{rc}_{sc}")
             with sc_s2:
                 st.write("")
                 st.write("")
                 st.checkbox("Ascending Order", key=f"scan_asc_{rc}_{sc}")
-            with sc_s3:
-                st.multiselect("🔍 Filter: Show only stocks also present in:", options=wl_names, key=f"scan_filter_{rc}_{sc}")
 
             if filtered_symbols:
                 batch_size = 30
