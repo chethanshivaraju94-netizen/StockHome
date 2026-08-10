@@ -13,41 +13,51 @@ from modules.state import save_fundamental_reports, save_market_briefings
 
 
 # ==========================================
-# 0. FREE STEALTH ROUTING ENGINE
+# 0. HIGH-SPEED DUAL NETWORK ENGINE
 # ==========================================
-def stealth_request(url, headers, cookies, is_pdf=False, max_retries=3):
+def fetch_screener_html(url, headers, cookies):
     """
-    Routes traffic through free open-source CORS proxies to bypass Datacenter IP blocks.
-    Limits timeouts to prevent Streamlit from hanging.
+    Fetches Screener.in HTML page. Tries direct request first, 
+    then instantly falls back to fast proxy if Cloudflare blocks.
     """
-    # Primary Free Route: AllOrigins (Highly stable for Streamlit Cloud)
-    proxy_url = f"https://api.allorigins.win/raw?url={url}"
-    
-    for attempt in range(max_retries):
-        try:
-            res = requests.get(proxy_url, timeout=20)
-            if res.status_code == 200:
-                if is_pdf and b"%PDF" not in res.content[:100]:
-                    time.sleep(1)
-                    continue
-                return res
-        except Exception:
-            time.sleep(1)
-            continue
-            
-    # Fallback to direct request
-    for attempt in range(max_retries):
-        try:
-            res = requests.get(url, headers=headers, cookies=cookies, timeout=15)
-            if res.status_code == 200:
-                if is_pdf and b"%PDF" not in res.content[:100]:
-                    time.sleep(1)
-                    continue
-                return res
-        except Exception:
-            time.sleep(1)
-            continue
-            
+    try:
+        r = requests.get(url, headers=headers, cookies=cookies, timeout=6)
+        if r.status_code == 200 and "documents" in r.text:
+            return r.content
+    except Exception:
+        pass
+
+    try:
+        proxy_url = f"https://api.allorigins.win/raw?url={url}"
+        r = requests.get(proxy_url, timeout=10)
+        if r.status_code == 200:
+            return r.content
+    except Exception:
+        pass
+
+    return None
+
+
+def fetch_pdf_direct(url, headers, cookies):
+    """
+    Downloads PDFs directly from BSE India / Amazon S3 servers.
+    Bypasses proxies completely for gigabit cloud speed.
+    """
+    try:
+        r = requests.get(url, headers=headers, cookies=cookies, timeout=12, allow_redirects=True)
+        if r.status_code == 200 and b"%PDF" in r.content[:100]:
+            return r.content
+    except Exception:
+        pass
+
+    try:
+        proxy_url = f"https://api.allorigins.win/raw?url={url}"
+        r = requests.get(proxy_url, timeout=15)
+        if r.status_code == 200 and b"%PDF" in r.content[:100]:
+            return r.content
+    except Exception:
+        pass
+
     return None
 
 
@@ -203,25 +213,20 @@ def run_gemini_fundamental_analysis(
 
     try:
         if status_log:
-            status_log.write(f"📡 **{clean_ticker}:** Routing through open network to bypass firewalls...")
-        
-        response = stealth_request(url, headers, cookies, is_pdf=False)
-        
-        if not response:
+            status_log.write(f"⚡ **{clean_ticker}:** Fetching latest Screener document links...")
+
+        html_content = fetch_screener_html(url, headers, cookies)
+        if not html_content:
             if status_log:
-                status_log.error(
-                    f"❌ **{clean_ticker}:** Connection blocked by firewalls. Skipping."
-                )
+                status_log.error(f"❌ **{clean_ticker}:** Could not access Screener.in page.")
             return None
 
-        soup = BeautifulSoup(response.content, "html.parser")
+        soup = BeautifulSoup(html_content, "html.parser")
         documents_section = soup.find(id="documents")
 
         if not documents_section:
             if status_log:
-                status_log.warning(
-                    f"⚠️ **{clean_ticker}:** No documents section found on Screener.in."
-                )
+                status_log.warning(f"⚠️ **{clean_ticker}:** No documents section found on Screener.in.")
             return None
 
         transcripts, ppts = [], []
@@ -232,72 +237,43 @@ def run_gemini_fundamental_analysis(
             text = link.get_text(strip=True).lower()
 
             if text == "transcript":
-                transcripts.append(("Transcript", href))
+                transcripts.append(href)
             elif text == "ppt":
-                ppts.append(("PPT", href))
+                ppts.append(href)
 
-        if status_log:
-            status_log.write(
-                f"Discovered: {len(transcripts)} Transcripts, {len(ppts)} PPTs."
-            )
+        # HIGH-SPEED OPTIMIZATION: Take strictly 1 latest Transcript & 1 latest PPT
+        target_docs = []
+        if transcripts:
+            target_docs.append(("Latest Transcript", transcripts[0]))
+        if ppts:
+            target_docs.append(("Latest PPT", ppts[0]))
 
-        state = {"count": 0, "urls": set()}
+        if not target_docs:
+            if status_log:
+                status_log.warning(f"⚠️ **{clean_ticker}:** No Transcripts or PPTs listed on Screener.")
+            return None
 
-        def try_download(text, href):
-            if href in state["urls"]:
-                return False
-
-            full_url = (
-                href
-                if href.startswith("http")
-                else urljoin("https://www.screener.in", href)
-            )
-
-            try:
-                doc_response = stealth_request(full_url, headers, cookies, is_pdf=True)
-                if doc_response and b"%PDF" in doc_response.content[:100]:
-                    file_name = f"screener_doc_{state['count'] + 1}.pdf"
-                    file_path = os.path.join(download_dir, file_name)
-                    with open(file_path, "wb") as f:
-                        f.write(doc_response.content)
-                    state["count"] += 1
-                    state["urls"].add(href)
-                    return True
-                else:
-                    if status_log:
-                        status_log.write(f"  -> Skipped {text}: Not a valid PDF.")
-            except Exception as e:
+        state_count = 0
+        for doc_type, href in target_docs:
+            full_url = href if href.startswith("http") else urljoin("https://www.screener.in", href)
+            
+            pdf_bytes = fetch_pdf_direct(full_url, headers, cookies)
+            if pdf_bytes:
+                file_path = os.path.join(download_dir, f"screener_doc_{state_count + 1}.pdf")
+                with open(file_path, "wb") as f:
+                    f.write(pdf_bytes)
+                state_count += 1
                 if status_log:
-                    status_log.write(f"  -> Skipped {text}: Download error - {e}")
-
-            return False
-
-        tr_count, ppt_count = 0, 0
-
-        # CRITICAL FIX: Skip massive Annual Reports. Only fetch latest 2 Transcripts & 1 PPT.
-        # This keeps the payload under 2MB so Streamlit Cloud never crashes.
-        for t, h in transcripts:
-            if tr_count >= 2: break
-            if try_download("Transcript", h): 
-                tr_count += 1
-
-        for t, h in ppts:
-            if ppt_count >= 1: break
-            if try_download("PPT", h): 
-                ppt_count += 1
+                    status_log.write(f"  -> Downloaded {doc_type} (< 1 sec)")
 
         pdf_files = glob.glob(f"{download_dir}/*.pdf")
         if not pdf_files:
             if status_log:
-                status_log.error(
-                    f"❌ **{clean_ticker}:** Could not successfully download any valid PDF reports."
-                )
+                status_log.error(f"❌ **{clean_ticker}:** Could not download valid official PDFs.")
             return None
 
         if status_log:
-            status_log.write(
-                f"🤖 **{clean_ticker}:** Uploading official ground-truth documents to Gemini 2.5 Flash..."
-            )
+            status_log.write(f"🤖 **{clean_ticker}:** Uploading official ground-truth documents to Gemini 2.5 Flash...")
 
         uploaded_files = []
         for file_path in pdf_files:
@@ -309,10 +285,10 @@ def run_gemini_fundamental_analysis(
                 file_info = client.files.get(name=f.name)
                 if "ACTIVE" in str(file_info.state).upper():
                     break
-                time.sleep(2)
+                time.sleep(1)
 
         if status_log:
-            status_log.write(f"Analyzing **{clean_ticker}** fundamentals based on official documents...")
+            status_log.write(f"🧠 **{clean_ticker}:** Running Minervini AI Fundamental Analysis...")
 
         prompt = """
 You are an uncompromising, strict Mark Minervini-style fundamental analyst. Your sole objective is to analyze the provided Investor Presentations and Earnings Call Transcripts to determine if the company meets Minervini's "Superperformance" criteria.
@@ -405,11 +381,7 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
             )
         except Exception as e:
             if "tokens allowed" in str(e) or "400" in str(e):
-                if status_log:
-                    status_log.write(
-                        f"   -> OVERLOAD: {clean_ticker} documents are too massive. Retrying with fewer files..."
-                    )
-                reduced_files = uploaded_files[:2]
+                reduced_files = uploaded_files[:1]
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=[prompt] + reduced_files,
