@@ -10,3 +10,4 @@ beautifulsoup4
 google-genai
 markdown
 fpdf2
+cloudscraper==1.2.71
