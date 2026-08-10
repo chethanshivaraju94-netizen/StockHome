@@ -7,9 +7,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from google import genai
 import markdown
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import cloudscraper
 import streamlit as st
 from modules.state import save_fundamental_reports, save_market_briefings
 
@@ -145,22 +143,20 @@ def run_gemini_fundamental_analysis(
 
     client = genai.Client(api_key=gemini_key)
 
+    # Set up CloudScraper to bypass Streamlit Cloud datacenter IP blocking
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Referer": "https://www.screener.in/",
     }
     cookies = {"sessionid": screener_sid}
-
-    # Set up robust HTTP session with retries
-    session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-    session.mount('https://', HTTPAdapter(max_retries=retries))
 
     clean_ticker = (
         ticker_input.split(":")[-1].strip().upper()
@@ -176,9 +172,9 @@ def run_gemini_fundamental_analysis(
 
     try:
         if status_log:
-            status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page...")
+            status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page via Stealth Scraper...")
         
-        response = session.get(url, headers=headers, cookies=cookies, timeout=20)
+        response = scraper.get(url, headers=headers, cookies=cookies, timeout=20)
         
         if response.status_code != 200:
             if status_log:
@@ -233,7 +229,7 @@ def run_gemini_fundamental_analysis(
             )
 
             try:
-                doc_response = session.get(
+                doc_response = scraper.get(
                     full_url,
                     headers=headers,
                     cookies=cookies,
@@ -254,11 +250,6 @@ def run_gemini_fundamental_analysis(
                         status_log.write(
                             f"  -> Skipped {text}: Downloaded file is not a valid PDF."
                         )
-            except requests.exceptions.Timeout:
-                if status_log:
-                    status_log.write(
-                        f"  -> Skipped {text}: BSE Server timed out (>30 seconds)."
-                    )
             except Exception as e:
                 if status_log:
                     status_log.write(f"  -> Skipped {text}: Download error - {e}")
@@ -498,10 +489,6 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
 
         return report_entry
         
-    except requests.exceptions.ConnectionError:
-        if status_log:
-            status_log.error(f"❌ **{clean_ticker}:** Connection Refused by Screener.in. (If you are hosted on Streamlit Cloud, Screener's firewall is blocking the cloud IP. Please run the app locally on your personal network to bypass this block).")
-        return None
     except Exception as e:
         if status_log:
             status_log.error(f"❌ **{clean_ticker}:** Analysis failed -> {e}")
