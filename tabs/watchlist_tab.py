@@ -216,21 +216,33 @@ def render_watchlist_tab():
 
         wl_cols = ["S.No.", "TV_Symbol", "name", "RS Rating", "Fundamental", "Close", "Change %", "ADR %", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
 
-        st.markdown(f"### ⭐ Watchlist: **{active_wl}** ({len(current_symbols)} Stocks)")
+        st.markdown(f"### ⭐ Watchlist: **{active_wl}**")
         st.caption("💡 **Watchlist Color Legend:** 🔵 Post Breakout Monitor | 🟢 Focus List | 🟡 Weekly Focus | 🟠 Scan Bulk | 🔴 Sold Stocks | 🟣 Custom | 🚨 **Circuit Band / Freeze**")
 
         wsc = st.session_state.wl_sel_counter
 
-        # --- BACKEND SORTING ENGINE ---
+        # --- BACKEND SORTING & FILTERING ENGINE ---
         sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
-        wl_s1, wl_s2 = st.columns([1.5, 3.5])
+        
+        wl_s1, wl_s2, wl_s3 = st.columns([1.5, 0.8, 2.7])
         with wl_s1:
             sort_by_wl = st.selectbox("🔀 Sort Watchlist By (Updates Hot-Swap):", options=sort_cols_wl, key=f"wl_sort_{wsc}")
         with wl_s2:
             st.write("")
             st.write("")
-            sort_asc_wl = st.checkbox("Ascending Order", value=False, key=f"wl_asc_{wsc}")
+            sort_asc_wl = st.checkbox("Ascending", value=False, key=f"wl_asc_{wsc}")
+        with wl_s3:
+            cross_filter_options = [w for w in wl_names if w != active_wl]
+            cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
             
+        # Execute Cross-Watchlist Filter
+        if cross_filter_wls:
+            valid_symbols = set()
+            for f_wl in cross_filter_wls:
+                valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
+            merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
+
+        # Execute Sorting
         if sort_by_wl != "Original Watchlist Order":
             temp_col = "_temp_sort_col"
             merged_df[temp_col] = pd.to_numeric(merged_df[sort_by_wl], errors="coerce")
@@ -303,20 +315,23 @@ def render_watchlist_tab():
 
         sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
 
-        batch_size = 30
-        batches = [sorted_tv_symbols[i : i + batch_size] for i in range(0, len(sorted_tv_symbols), batch_size)]
+        if sorted_tv_symbols:
+            batch_size = 30
+            batches = [sorted_tv_symbols[i : i + batch_size] for i in range(0, len(sorted_tv_symbols), batch_size)]
 
-        if len(batches) > 1:
-            batch_labels = []
-            for idx, b_list in enumerate(batches):
-                start_num = idx * batch_size + 1
-                end_num = idx * batch_size + len(b_list)
-                batch_labels.append(f"Batch {idx + 1} ({start_num}–{end_num})")
-            selected_wl_batch_label = st.selectbox("Select 30-Symbol Batch to Copy:", options=batch_labels, key=f"wl_batch_select_{active_wl}_{wsc}")
-            selected_wl_idx = batch_labels.index(selected_wl_batch_label)
-            st.code(", ".join(batches[selected_wl_idx]), language="text")
+            if len(batches) > 1:
+                batch_labels = []
+                for idx, b_list in enumerate(batches):
+                    start_num = idx * batch_size + 1
+                    end_num = idx * batch_size + len(b_list)
+                    batch_labels.append(f"Batch {idx + 1} ({start_num}–{end_num})")
+                selected_wl_batch_label = st.selectbox("Select 30-Symbol Batch to Copy:", options=batch_labels, key=f"wl_batch_select_{active_wl}_{wsc}")
+                selected_wl_idx = batch_labels.index(selected_wl_batch_label)
+                st.code(", ".join(batches[selected_wl_idx]), language="text")
+            else:
+                st.code(", ".join(sorted_tv_symbols), language="text")
+
+            with st.expander("📋 View / Copy All Tickers (Full Unbatched String)", expanded=False):
+                st.code(", ".join(sorted_tv_symbols), language="text")
         else:
-            st.code(", ".join(sorted_tv_symbols), language="text")
-
-        with st.expander("📋 View / Copy All Tickers (Full Unbatched String)", expanded=False):
-            st.code(", ".join(sorted_tv_symbols), language="text")
+            st.info("No stocks match the current filter criteria.")
