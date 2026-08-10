@@ -182,6 +182,7 @@ def render_watchlist_tab():
         for wl_name, sym_list in st.session_state.watchlists.items():
             wl_lower = wl_name.lower()
             
+            # Strict Priority: 'weekly' evaluated before 'focus' to prevent overlap bugs
             if "breakout" in wl_lower:
                 dot = "🔵"
             elif "weekly" in wl_lower:
@@ -215,9 +216,6 @@ def render_watchlist_tab():
 
         wl_cols = ["S.No.", "TV_Symbol", "name", "RS Rating", "Fundamental", "Close", "Change %", "ADR %", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
 
-        st.markdown(f"### ⭐ Watchlist: **{active_wl}**")
-        st.caption("💡 **Watchlist Color Legend:** 🔵 Post Breakout Monitor | 🟢 Focus List | 🟡 Weekly Focus | 🟠 Scan Bulk | 🔴 Sold Stocks | 🟣 Custom | 🚨 **Circuit Band / Freeze**")
-
         wsc = st.session_state.wl_sel_counter
 
         # --- 1. RENDER FILTER DROPDOWN DIRECTLY ABOVE TABLE ---
@@ -238,6 +236,9 @@ def render_watchlist_tab():
             temp_col = "_temp_sort_col"
             merged_df[temp_col] = pd.to_numeric(merged_df[sort_by_wl], errors="coerce")
             merged_df = merged_df.sort_values(by=temp_col, ascending=sort_asc_wl).drop(columns=[temp_col])
+
+        st.markdown(f"### ⭐ Watchlist: **{active_wl}** ({len(merged_df)} Stocks)")
+        st.caption("💡 **Watchlist Color Legend:** 🔵 Post Breakout Monitor | 🟢 Focus List | 🟡 Weekly Focus | 🟠 Scan Bulk | 🔴 Sold Stocks | 🟣 Custom | 🚨 **Circuit Band / Freeze**")
 
         wl_table_event = st.dataframe(
             merged_df[wl_cols], use_container_width=True, hide_index=True, height=460,
