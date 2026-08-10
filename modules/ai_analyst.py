@@ -9,65 +9,58 @@ from bs4 import BeautifulSoup
 from google import genai
 import markdown
 import requests
+import urllib3
 import streamlit as st
 from modules.state import save_fundamental_reports, save_market_briefings
 
 
 # ==========================================
-# 0. FORTIFIED STEALTH NETWORK ENGINE
+# 0. RESIDENTIAL PROXY NETWORK ENGINE
 # ==========================================
-def stealth_request(url, headers, cookies, is_pdf=False, max_retries=5):
+def stealth_request(url, headers, cookies, is_pdf=False, max_retries=3):
     """
-    Highly resilient fetcher designed to beat dynamic rate limiters and WAFs.
-    Rotates profiles, applies human jitter, and cascades through proxy networks.
+    Routes traffic through a residential proxy to bypass Cloudflare AWS IP blocks.
     """
-    profiles = ["chrome110", "chrome120", "edge101", "safari15_3", "safari15_5"]
+    scraper_api_key = st.secrets.get("SCRAPER_API_KEY", "")
     
-    # LAYER 1: Deep Retries with Cryptographic Browser Impersonation
-    for attempt in range(max_retries):
-        profile = random.choice(profiles)
-        try:
-            from curl_cffi import requests as cffi_requests
-            res = cffi_requests.get(url, headers=headers, cookies=cookies, impersonate=profile, timeout=30)
-            if res.status_code == 200:
-                if is_pdf and b"%PDF" not in res.content[:100]:
-                    pass # Firewall served a Captcha HTML page instead of the PDF
-                else:
+    if scraper_api_key:
+        proxy_url = f"http://scraperapi:{scraper_api_key}@proxy-server.scraperapi.com:8001"
+        proxies = {"http": proxy_url, "https": proxy_url}
+        
+        for attempt in range(max_retries):
+            try:
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                res = requests.get(
+                    url, 
+                    headers=headers, 
+                    cookies=cookies, 
+                    proxies=proxies, 
+                    verify=False, 
+                    timeout=45
+                )
+                
+                if res.status_code == 200:
+                    if is_pdf and b"%PDF" not in res.content[:100]:
+                        time.sleep(2)
+                        continue
                     return res
-        except Exception:
-            pass
-            
-        # LAYER 2: Standard requests fallback
+            except Exception:
+                time.sleep(2)
+                continue
+                
+    # Fallback to standard requests if proxy key is missing
+    for attempt in range(max_retries):
         try:
             res = requests.get(url, headers=headers, cookies=cookies, timeout=25)
             if res.status_code == 200:
                 if is_pdf and b"%PDF" not in res.content[:100]:
-                    pass
-                else:
-                    return res
-        except Exception:
-            pass
-
-        # Exponential backoff with human jitter to cool off the rate limiter
-        time.sleep((1.5 ** attempt) + random.uniform(1.0, 3.0))
-
-    # LAYER 3: Desperation Proxy Routing (Bypasses IP blocks completely)
-    proxies = [
-        f"https://api.allorigins.win/raw?url={url}",
-        f"https://api.codetabs.com/v1/proxy/?quest={url}",
-        f"https://corsproxy.io/?url={url}"
-    ]
-    
-    for proxy_url in proxies:
-        try:
-            res = requests.get(proxy_url, timeout=30)
-            if res.status_code == 200:
-                if is_pdf and b"%PDF" not in res.content[:100]:
+                    time.sleep(2)
                     continue
                 return res
         except Exception:
+            time.sleep(2)
             continue
-
+            
     return None
 
 
@@ -194,6 +187,7 @@ def run_gemini_fundamental_analysis(
     screener_sid = st.secrets.get("SCREENER_SESSION_ID", "")
     email_addr = st.secrets.get("EMAIL_ADDRESS", "")
     email_pass = st.secrets.get("EMAIL_APP_PASSWORD", "")
+    proxy_key = st.secrets.get("SCRAPER_API_KEY", "")
 
     if not gemini_key:
         if status_log:
@@ -223,14 +217,17 @@ def run_gemini_fundamental_analysis(
 
     try:
         if status_log:
-            status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page via Fortified Stealth Engine...")
+            if proxy_key:
+                status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page via Residential Proxy...")
+            else:
+                status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page (Warning: Vulnerable to IP Blocks)...")
         
-        response = stealth_request(url, headers, cookies, is_pdf=False, max_retries=6)
+        response = stealth_request(url, headers, cookies, is_pdf=False)
         
         if not response:
             if status_log:
                 status_log.error(
-                    f"❌ **{clean_ticker}:** Connection strictly blocked by firewalls after multiple routing attempts. Skipping."
+                    f"❌ **{clean_ticker}:** Connection strictly blocked by firewalls. Please configure SCRAPER_API_KEY in secrets."
                 )
             return None
 
@@ -277,8 +274,7 @@ def run_gemini_fundamental_analysis(
             )
 
             try:
-                # Fortified fetch for heavy PDFs (BSE India heavily rate limits these)
-                doc_response = stealth_request(full_url, headers, cookies, is_pdf=True, max_retries=5)
+                doc_response = stealth_request(full_url, headers, cookies, is_pdf=True)
                 if doc_response and b"%PDF" in doc_response.content[:100]:
                     file_name = f"screener_doc_{state['count'] + 1}.pdf"
                     file_path = os.path.join(download_dir, file_name)
@@ -300,24 +296,23 @@ def run_gemini_fundamental_analysis(
 
         ar_count, tr_count, ppt_count = 0, 0, 0
 
-        # Mandatory human-jitter delays added between downloads to prevent rapid IP bans
         for t, h in ars:
             if ar_count >= 1: break
             if try_download("Annual Report", h): 
                 ar_count += 1
-                time.sleep(random.uniform(2.5, 4.5))
+                time.sleep(random.uniform(1.0, 2.0))
 
         for t, h in transcripts:
             if tr_count >= 4: break
             if try_download("Transcript", h): 
                 tr_count += 1
-                time.sleep(random.uniform(2.5, 4.5))
+                time.sleep(random.uniform(1.0, 2.0))
 
         for t, h in ppts:
             if ppt_count >= 4: break
             if try_download("PPT", h): 
                 ppt_count += 1
-                time.sleep(random.uniform(2.5, 4.5))
+                time.sleep(random.uniform(1.0, 2.0))
 
         pdf_files = glob.glob(f"{download_dir}/*.pdf")
         if not pdf_files:
