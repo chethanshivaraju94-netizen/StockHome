@@ -221,10 +221,13 @@ def render_watchlist_tab():
 
         wsc = st.session_state.wl_sel_counter
 
-        # --- BACKEND SORTING & FILTERING ENGINE ---
+        # --- RENDER FILTER AT TOP OF TABLE ---
+        cross_filter_options = [w for w in wl_names if w != active_wl]
+        cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
+
+        # --- APPLY BACKEND SORTING & FILTERING ---
         sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
         sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
-        cross_filter_wls = st.session_state.get(f"wl_filter_{wsc}", [])
 
         if cross_filter_wls:
             valid_symbols = set()
@@ -306,16 +309,13 @@ def render_watchlist_tab():
 
         sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
         
-        wl_s1, wl_s2, wl_s3 = st.columns([1.5, 0.8, 2.7])
+        wl_s1, wl_s2 = st.columns([1.5, 3.5])
         with wl_s1:
             st.selectbox("🔀 Sort Watchlist By (Updates Hot-Swap):", options=sort_cols_wl, key=f"wl_sort_{wsc}")
         with wl_s2:
             st.write("")
             st.write("")
             st.checkbox("Ascending", key=f"wl_asc_{wsc}")
-        with wl_s3:
-            cross_filter_options = [w for w in wl_names if w != active_wl]
-            st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
 
         if sorted_tv_symbols:
             batch_size = 30
