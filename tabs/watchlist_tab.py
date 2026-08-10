@@ -177,12 +177,15 @@ def render_watchlist_tab():
         merged_df["TV_Link"] = "https://www.tradingview.com/chart/?symbol=" + merged_df["TV_Symbol"]
         merged_df["Screener_Link"] = "https://www.screener.in/company/" + merged_df["name"] + "/consolidated/"
 
+        # --- DEDUPLICATED WL DOT LOGIC ---
         wl_dot_map_wl = {}
         for wl_name, sym_list in st.session_state.watchlists.items():
             dot = "🔵" if "breakout" in wl_name.lower() else ("🟢" if "focus" in wl_name.lower() else ("🟡" if "weekly" in wl_name.lower() else ("🟠" if "bulk" in wl_name.lower() else "🔴" if "sold" in wl_name.lower() else "🟣")))
             for s in sym_list:
                 bare_s = s.split(":")[-1].strip().upper()
-                wl_dot_map_wl[bare_s] = wl_dot_map_wl.get(bare_s, "") + dot
+                # Ensure dot is only added once per symbol
+                if dot not in wl_dot_map_wl.get(bare_s, ""):
+                    wl_dot_map_wl[bare_s] = wl_dot_map_wl.get(bare_s, "") + dot
 
         merged_df["WL_Dots"] = merged_df["name"].str.upper().map(wl_dot_map_wl).fillna("")
         merged_df["S.No."] = merged_df.apply(lambda r: f"{r['S.No._num']} {r['WL_Dots']}".strip() if r["WL_Dots"] else str(r['S.No._num']), axis=1)
