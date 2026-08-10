@@ -183,7 +183,6 @@ def render_watchlist_tab():
             dot = "🔵" if "breakout" in wl_name.lower() else ("🟢" if "focus" in wl_name.lower() else ("🟡" if "weekly" in wl_name.lower() else ("🟠" if "bulk" in wl_name.lower() else "🔴" if "sold" in wl_name.lower() else "🟣")))
             for s in sym_list:
                 bare_s = s.split(":")[-1].strip().upper()
-                # Ensure dot is only added once per symbol
                 if dot not in wl_dot_map_wl.get(bare_s, ""):
                     wl_dot_map_wl[bare_s] = wl_dot_map_wl.get(bare_s, "") + dot
 
@@ -206,6 +205,22 @@ def render_watchlist_tab():
         st.caption("💡 **Watchlist Color Legend:** 🔵 Post Breakout Monitor | 🟢 Focus List | 🟡 Weekly Focus | 🟠 Scan Bulk | 🔴 Sold Stocks | 🟣 Custom | 🚨 **Circuit Band / Freeze**")
 
         wsc = st.session_state.wl_sel_counter
+
+        # --- BACKEND SORTING ENGINE ---
+        sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
+        wl_s1, wl_s2 = st.columns([1.5, 3.5])
+        with wl_s1:
+            sort_by_wl = st.selectbox("🔀 Sort Watchlist By (Updates Hot-Swap):", options=sort_cols_wl, key=f"wl_sort_{wsc}")
+        with wl_s2:
+            st.write("")
+            st.write("")
+            sort_asc_wl = st.checkbox("Ascending Order", value=False, key=f"wl_asc_{wsc}")
+            
+        if sort_by_wl != "Original Watchlist Order":
+            temp_col = "_temp_sort_col"
+            merged_df[temp_col] = pd.to_numeric(merged_df[sort_by_wl], errors="coerce")
+            merged_df = merged_df.sort_values(by=temp_col, ascending=sort_asc_wl).drop(columns=[temp_col])
+
         wl_table_event = st.dataframe(
             merged_df[wl_cols], use_container_width=True, hide_index=True, height=460,
             on_select="rerun", selection_mode="multi-row", column_config=get_left_aligned_column_config(wl_cols), key=f"wl_manage_table_{wsc}"
@@ -271,8 +286,10 @@ def render_watchlist_tab():
         st.markdown("#### ⚡ 30-Symbol TradingView Hot-Swap Batches")
         st.caption("💡 **Free Tier Bypass Workflow:** In TradingView, press **`Ctrl+A`** → **`Backspace`** → **`Ctrl+V`** in your TV watchlist box to hot-swap 30 stocks at a time!")
 
+        sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
+
         batch_size = 30
-        batches = [current_symbols[i : i + batch_size] for i in range(0, len(current_symbols), batch_size)]
+        batches = [sorted_tv_symbols[i : i + batch_size] for i in range(0, len(sorted_tv_symbols), batch_size)]
 
         if len(batches) > 1:
             batch_labels = []
@@ -284,7 +301,7 @@ def render_watchlist_tab():
             selected_wl_idx = batch_labels.index(selected_wl_batch_label)
             st.code(", ".join(batches[selected_wl_idx]), language="text")
         else:
-            st.code(", ".join(current_symbols), language="text")
+            st.code(", ".join(sorted_tv_symbols), language="text")
 
         with st.expander("📋 View / Copy All Tickers (Full Unbatched String)", expanded=False):
-            st.code(", ".join(current_symbols), language="text")
+            st.code(", ".join(sorted_tv_symbols), language="text")
