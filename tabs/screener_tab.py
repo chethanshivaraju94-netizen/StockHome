@@ -380,9 +380,6 @@ def render_screener_tab():
                 + [vol_display_label, "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
             )
 
-            st.subheader(f"📋 Scan Results")
-            st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
-
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
 
@@ -403,6 +400,9 @@ def render_screener_tab():
                 temp_col = "_temp_sort_col"
                 df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
                 df_display = df_display.sort_values(by=temp_col, ascending=sort_asc).drop(columns=[temp_col])
+
+            st.subheader(f"📋 Scan Results ({len(df_display)} Stocks Found)")
+            st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
 
             table_ev_scan = st.dataframe(
                 df_display[table_columns], use_container_width=True, hide_index=True, on_select="rerun",
