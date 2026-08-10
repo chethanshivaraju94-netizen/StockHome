@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 from google import genai
 import markdown
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import streamlit as st
 from modules.state import save_fundamental_reports, save_market_briefings
 
@@ -133,7 +135,7 @@ def run_gemini_fundamental_analysis(
 ):
     gemini_key = st.secrets.get("GEMINI_API_KEY", "")
     screener_sid = st.secrets.get("SCREENER_SESSION_ID", "")
-    email_addr = st.secrets.get("EMAIL_ADDRESS", "chethanshivaraju7@gmail.com")
+    email_addr = st.secrets.get("EMAIL_ADDRESS", "")
     email_pass = st.secrets.get("EMAIL_APP_PASSWORD", "")
 
     if not gemini_key:
@@ -155,6 +157,11 @@ def run_gemini_fundamental_analysis(
     }
     cookies = {"sessionid": screener_sid}
 
+    # Set up robust HTTP session with retries
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+
     clean_ticker = (
         ticker_input.split(":")[-1].strip().upper()
         if ":" in str(ticker_input)
@@ -170,12 +177,14 @@ def run_gemini_fundamental_analysis(
     try:
         if status_log:
             status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page...")
-        response = requests.get(url, headers=headers, cookies=cookies, timeout=20)
+        
+        response = session.get(url, headers=headers, cookies=cookies, timeout=20)
+        
         if response.status_code != 200:
             if status_log:
                 status_log.error(
                     f"❌ **{clean_ticker}:** Could not access Screener.in page (HTTP"
-                    f" {response.status_code})."
+                    f" {response.status_code}). Check your SCREENER_SESSION_ID."
                 )
             return None
 
@@ -224,7 +233,7 @@ def run_gemini_fundamental_analysis(
             )
 
             try:
-                doc_response = requests.get(
+                doc_response = session.get(
                     full_url,
                     headers=headers,
                     cookies=cookies,
@@ -488,7 +497,11 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
                     status_log.write(f"⚠️ Email dispatch warning: {mail_err}")
 
         return report_entry
-
+        
+    except requests.exceptions.ConnectionError:
+        if status_log:
+            status_log.error(f"❌ **{clean_ticker}:** Connection Refused by Screener.in. (If you are hosted on Streamlit Cloud, Screener's firewall is blocking the cloud IP. Please run the app locally on your personal network to bypass this block).")
+        return None
     except Exception as e:
         if status_log:
             status_log.error(f"❌ **{clean_ticker}:** Analysis failed -> {e}")
