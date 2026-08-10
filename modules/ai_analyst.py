@@ -7,9 +7,63 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from google import genai
 import markdown
-import cloudscraper
+import requests
 import streamlit as st
 from modules.state import save_fundamental_reports, save_market_briefings
+
+
+# ==========================================
+# 0. STEALTH NETWORK ENGINE (Bypasses Cloud Firewalls)
+# ==========================================
+def stealth_request(url, headers, cookies, is_pdf=False):
+    """
+    Multi-layered stealth fetcher to bypass Streamlit Cloud IP blocks.
+    Layer 1: curl_cffi (Maintains session/cookies, perfect browser impersonation)
+    Layer 2: Standard requests (Fallback)
+    Layer 3: Public IP Bypass Proxy (Strips cookies, but bypasses hard IP bans)
+    """
+    # LAYER 1: C-Compiled Chrome Impersonation
+    try:
+        from curl_cffi import requests as cffi_requests
+        res = cffi_requests.get(url, headers=headers, cookies=cookies, impersonate="chrome110", timeout=25)
+        if res.status_code == 200:
+            if is_pdf and b"%PDF" not in res.content[:100]:
+                pass
+            else:
+                return res
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # LAYER 2: Standard Requests Fallback
+    try:
+        res = requests.get(url, headers=headers, cookies=cookies, timeout=20)
+        if res.status_code == 200:
+            if is_pdf and b"%PDF" not in res.content[:100]:
+                pass
+            else:
+                return res
+    except Exception:
+        pass
+
+    # LAYER 3: Open Routing Proxies (Hard IP Bypass)
+    proxies = [
+        f"https://api.allorigins.win/raw?url={url}",
+        f"https://api.codetabs.com/v1/proxy/?quest={url}"
+    ]
+    
+    for proxy_url in proxies:
+        try:
+            res = requests.get(proxy_url, timeout=30)
+            if res.status_code == 200:
+                if is_pdf and b"%PDF" not in res.content[:100]:
+                    continue
+                return res
+        except Exception:
+            continue
+
+    return None
 
 
 # ==========================================
@@ -143,16 +197,8 @@ def run_gemini_fundamental_analysis(
 
     client = genai.Client(api_key=gemini_key)
 
-    # Set up CloudScraper to bypass Streamlit Cloud datacenter IP blocking
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        }
-    )
-
     headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Referer": "https://www.screener.in/",
     }
@@ -172,15 +218,14 @@ def run_gemini_fundamental_analysis(
 
     try:
         if status_log:
-            status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page via Stealth Scraper...")
+            status_log.write(f"📡 **{clean_ticker}:** Accessing Screener.in page via Stealth Routing...")
         
-        response = scraper.get(url, headers=headers, cookies=cookies, timeout=20)
+        response = stealth_request(url, headers, cookies, is_pdf=False)
         
-        if response.status_code != 200:
+        if not response:
             if status_log:
                 status_log.error(
-                    f"❌ **{clean_ticker}:** Could not access Screener.in page (HTTP"
-                    f" {response.status_code}). Check your SCREENER_SESSION_ID."
+                    f"❌ **{clean_ticker}:** Connection blocked by Screener.in firewalls. Stealth routing failed."
                 )
             return None
 
@@ -229,14 +274,8 @@ def run_gemini_fundamental_analysis(
             )
 
             try:
-                doc_response = scraper.get(
-                    full_url,
-                    headers=headers,
-                    cookies=cookies,
-                    timeout=30,
-                    allow_redirects=True,
-                )
-                if b"%PDF" in doc_response.content[:100]:
+                doc_response = stealth_request(full_url, headers, cookies, is_pdf=True)
+                if doc_response and b"%PDF" in doc_response.content[:100]:
                     file_name = f"screener_doc_{state['count'] + 1}.pdf"
                     file_path = os.path.join(download_dir, file_name)
                     with open(file_path, "wb") as f:
@@ -248,7 +287,7 @@ def run_gemini_fundamental_analysis(
                 else:
                     if status_log:
                         status_log.write(
-                            f"  -> Skipped {text}: Downloaded file is not a valid PDF."
+                            f"  -> Skipped {text}: Downloaded file is not a valid PDF or route blocked."
                         )
             except Exception as e:
                 if status_log:
