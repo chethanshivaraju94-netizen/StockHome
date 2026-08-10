@@ -332,7 +332,6 @@ def render_screener_tab():
             for wl_name, sym_list in st.session_state.watchlists.items():
                 wl_lower = wl_name.lower()
                 
-                # Strict Priority: 'weekly' evaluated before 'focus' to prevent overlap bugs
                 if "breakout" in wl_lower:
                     dot = "🔵"
                 elif "weekly" in wl_lower:
@@ -381,20 +380,22 @@ def render_screener_tab():
                 + [vol_display_label, "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
             )
 
-            st.subheader(f"📋 Scan Results ({len(df_display)} Stocks Found)")
+            st.subheader(f"📋 Scan Results")
             st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
 
             sc = st.session_state.scan_sel_counter
+            wl_names = list(st.session_state.watchlists.keys())
 
-            # --- BACKEND SORTING ENGINE (Syncs Table & TV Hot-Swap) ---
-            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
-            sc_s1, sc_s2 = st.columns([1.5, 3.5])
-            with sc_s1:
-                sort_by = st.selectbox("🔀 Sort Results By (Updates Hot-Swap):", options=sort_options, key=f"scan_sort_{rc}_{sc}")
-            with sc_s2:
-                st.write("")
-                st.write("")
-                sort_asc = st.checkbox("Ascending Order", value=False, key=f"scan_asc_{rc}_{sc}")
+            # --- BACKEND SORTING & FILTERING ENGINE ---
+            sort_by = st.session_state.get(f"scan_sort_{rc}_{sc}", "Original Scan Order")
+            sort_asc = st.session_state.get(f"scan_asc_{rc}_{sc}", False)
+            cross_filter_wls = st.session_state.get(f"scan_filter_{rc}_{sc}", [])
+
+            if cross_filter_wls:
+                valid_symbols = set()
+                for f_wl in cross_filter_wls:
+                    valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
+                df_display = df_display[df_display["name"].isin(valid_symbols)]
 
             if sort_by != "Original Scan Order":
                 temp_col = "_temp_sort_col"
@@ -441,8 +442,7 @@ def render_screener_tab():
             st.markdown("---")
             cw1, cw2, cw3, cw4 = st.columns([1.8, 1.5, 2.0, 0.9])
             with cw1:
-                wl_keys = list(st.session_state.watchlists.keys())
-                target_wl = st.selectbox("Select Target Watchlist to Add Setups:", options=wl_keys, index=(wl_keys.index(st.session_state.active_watchlist_name) if st.session_state.active_watchlist_name in wl_keys else 0), key="wl_table_target_select")
+                target_wl = st.selectbox("Select Target Watchlist to Add Setups:", options=wl_names, index=(wl_names.index(st.session_state.active_watchlist_name) if st.session_state.active_watchlist_name in wl_names else 0), key="wl_table_target_select")
             with cw2:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button(f"➕ Add Selected ({len(selected_rows)}) to Watchlist", type="primary", use_container_width=True, disabled=len(selected_rows) == 0):
@@ -478,6 +478,18 @@ def render_screener_tab():
 
             filtered_symbols = df_display["TV_Symbol"].tolist()
             st.subheader(f"📋 Copy Filtered Scan Results to TradingView ({len(filtered_symbols)} Stocks)")
+
+            # --- RENDER BACKEND SORTING ENGINE ---
+            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
+            sc_s1, sc_s2, sc_s3 = st.columns([1.5, 0.8, 2.7])
+            with sc_s1:
+                st.selectbox("🔀 Sort Results By (Updates Hot-Swap):", options=sort_options, key=f"scan_sort_{rc}_{sc}")
+            with sc_s2:
+                st.write("")
+                st.write("")
+                st.checkbox("Ascending Order", key=f"scan_asc_{rc}_{sc}")
+            with sc_s3:
+                st.multiselect("🔍 Filter: Show only stocks also present in:", options=wl_names, key=f"scan_filter_{rc}_{sc}")
 
             if filtered_symbols:
                 batch_size = 30
