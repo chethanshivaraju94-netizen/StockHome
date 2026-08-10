@@ -182,7 +182,6 @@ def render_watchlist_tab():
         for wl_name, sym_list in st.session_state.watchlists.items():
             wl_lower = wl_name.lower()
             
-            # Strict Priority: 'weekly' evaluated before 'focus' to prevent overlap bugs
             if "breakout" in wl_lower:
                 dot = "🔵"
             elif "weekly" in wl_lower:
@@ -221,11 +220,11 @@ def render_watchlist_tab():
 
         wsc = st.session_state.wl_sel_counter
 
-        # --- RENDER FILTER AT TOP OF TABLE ---
+        # --- 1. RENDER FILTER DROPDOWN DIRECTLY ABOVE TABLE ---
         cross_filter_options = [w for w in wl_names if w != active_wl]
         cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
 
-        # --- APPLY BACKEND SORTING & FILTERING ---
+        # --- 2. APPLY FILTER & SORTING ---
         sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
         sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
 
@@ -303,7 +302,7 @@ def render_watchlist_tab():
 
         sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
 
-        # --- RENDER BACKEND SORTING ENGINE ---
+        # --- 3. RENDER SORTING ENGINE DIRECTLY UNDER HOT-SWAP HEADER ---
         st.markdown("#### ⚡ 30-Symbol TradingView Hot-Swap Batches")
         st.caption("💡 **Free Tier Bypass Workflow:** In TradingView, press **`Ctrl+A`** → **`Backspace`** → **`Ctrl+V`** in your TV watchlist box to hot-swap 30 stocks at a time!")
 
