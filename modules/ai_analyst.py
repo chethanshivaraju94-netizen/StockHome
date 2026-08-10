@@ -97,8 +97,11 @@ def create_pdf_bytes(ticker, report_md):
             "”": '"',
             "‘": "'",
             "’": "'",
-            "•": "*",
+            "•": "-",
             "…": "...",
+            "**": "",  # Strip markdown bolding
+            "__": "",  # Strip markdown alternative bolding
+            "* ": "- ", # Clean list markers
         }
         for k, v in replacements.items():
             text = text.replace(k, v)
@@ -360,16 +363,21 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
 * **Code 33 Acceleration:** Are EPS, Sales, AND Net Margins accelerating compared to prior 2-3 quarters or same quarter last year? (**Yes / No / Data Missing**)
 * **Margin Dynamics:** Are Net and Operating Profit Margins expanding or contracting YoY?
 * **Management Guidance:** Did management raise or confirm strong future outlook/guidance in recent Earnings Calls?
+* **Annual Track Record:** Annual EPS growth rate? Are current FY estimates projected to reach a new all-time high?
 
 #### SECTION 2: Sector-Adaptive Catalyst & Forward Triggers (Concall & PPT Extraction)
 * **Primary Sector Catalyst:** Identify the primary growth driver based on the industry (e.g., CapEx/Order Book for Industrial; NIM/Credit growth for Banks; Deal wins/Margins for IT; Volume/SSSG/Stores for Retail; FDA/Launches for Pharma).
 * **Catalyst Magnitude & Timeline:** Is this a game-changing trigger taking effect in the next 1-4 quarters? State exact management commentary or guidance.
+* **Institutional Sponsorship (FII/DII Trend):** Did FII, DII, or Mutual Fund shareholding increase in the most recent quarter compared to the previous quarter? (Yes / No / Data Missing)
+* **Market Leadership:** Is the company a market leader (#1 or #2 in its niche) or gaining market share?
 * **Competitive Advantage & Scalability:** Is the growth model scalable without excessive capital burn?
 
 #### SECTION 3: Quality of Earnings & Red Flags
 * ⚠️ **Inventory vs. Sales Growth:** Is inventory (especially finished goods) growing faster than sales? State exact growth rate comparison if present (Mark N/A for Banks/Services).
 * ⚠️ **Receivables vs. Sales Growth:** Are accounts receivable growing faster than sales?
 * **Source of Profit:** Is EPS driven by **Top Line revenue**, or by cost-cutting, tax benefits, or "Other Income"?
+* **Tax Rate Distortion:** Was there an artificial boost to EPS from a lower effective tax rate?
+* **Cash Flow vs. Earnings:** Has Operating Cash Flow (CFO) diverged negatively from Net Profit?
 * **Debt Load & Solvency:** What is the total debt load (or NPA profile for financials), and can cash flows easily service it?
 """
 
@@ -381,6 +389,10 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
             )
         except Exception as e:
             if "tokens allowed" in str(e) or "400" in str(e):
+                if status_log:
+                    status_log.write(
+                        f"   -> OVERLOAD: {clean_ticker} documents are too massive. Retrying with fewer files..."
+                    )
                 reduced_files = uploaded_files[:1]
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
@@ -402,13 +414,13 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
                 break
 
         if "PASS" in verdict_line or "🟢" in verdict_line:
-            verdict = "PASS 🟢"
+            verdict = "🟢 PASS"
         elif "WATCHLIST" in verdict_line or "🟡" in verdict_line:
-            verdict = "WATCHLIST 🟡"
+            verdict = "🟡 WATCHLIST"
         elif "FAIL" in verdict_line or "🔴" in verdict_line:
-            verdict = "FAIL 🔴"
+            verdict = "🔴 FAIL"
         else:
-            verdict = "Review Needed"
+            verdict = "⚪ Review Needed"
 
         today_str = time.strftime("%Y-%m-%d")
         report_entry = {
