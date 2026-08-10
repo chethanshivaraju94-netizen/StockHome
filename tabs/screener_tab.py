@@ -386,10 +386,10 @@ def render_screener_tab():
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
 
-            # --- RENDER FILTER AT TOP OF TABLE ---
+            # --- 1. RENDER FILTER DROPDOWN DIRECTLY ABOVE TABLE ---
             cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=wl_names, key=f"scan_filter_{rc}_{sc}")
 
-            # --- APPLY BACKEND SORTING & FILTERING ---
+            # --- 2. APPLY FILTER & SORTING ---
             sort_by = st.session_state.get(f"scan_sort_{rc}_{sc}", "Original Scan Order")
             sort_asc = st.session_state.get(f"scan_asc_{rc}_{sc}", False)
 
@@ -481,7 +481,7 @@ def render_screener_tab():
             filtered_symbols = df_display["TV_Symbol"].tolist()
             st.subheader(f"📋 Copy Filtered Scan Results to TradingView ({len(filtered_symbols)} Stocks)")
 
-            # --- RENDER BACKEND SORTING ENGINE ---
+            # --- 3. RENDER SORTING ENGINE DIRECTLY UNDER HOT-SWAP HEADER ---
             sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
             sc_s1, sc_s2 = st.columns([1.5, 3.5])
             with sc_s1:
