@@ -328,13 +328,11 @@ def render_screener_tab():
             df_display["TV_Link"] = "https://www.tradingview.com/chart/?symbol=NSE:" + df_display["name"]
             df_display["Screener_Link"] = "https://www.screener.in/company/" + df_display["name"] + "/consolidated/"
 
-            # --- DEDUPLICATED WL DOT LOGIC ---
             wl_dot_map = {}
             for wl_name, sym_list in st.session_state.watchlists.items():
                 dot = "🔵" if "breakout" in wl_name.lower() else ("🟢" if "focus" in wl_name.lower() else ("🟡" if "weekly" in wl_name.lower() else ("🟠" if "bulk" in wl_name.lower() else "🔴" if "sold" in wl_name.lower() else "🟣")))
                 for s in sym_list:
                     bare_s = s.split(":")[-1].strip().upper()
-                    # Ensure dot is only added once per symbol
                     if dot not in wl_dot_map.get(bare_s, ""):
                         wl_dot_map[bare_s] = wl_dot_map.get(bare_s, "") + dot
 
@@ -372,6 +370,22 @@ def render_screener_tab():
             st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
 
             sc = st.session_state.scan_sel_counter
+
+            # --- BACKEND SORTING ENGINE (Syncs Table & TV Hot-Swap) ---
+            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
+            sc_s1, sc_s2 = st.columns([1.5, 3.5])
+            with sc_s1:
+                sort_by = st.selectbox("🔀 Sort Results By (Updates Hot-Swap):", options=sort_options, key=f"scan_sort_{rc}_{sc}")
+            with sc_s2:
+                st.write("")
+                st.write("")
+                sort_asc = st.checkbox("Ascending Order", value=False, key=f"scan_asc_{rc}_{sc}")
+
+            if sort_by != "Original Scan Order":
+                temp_col = "_temp_sort_col"
+                df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
+                df_display = df_display.sort_values(by=temp_col, ascending=sort_asc).drop(columns=[temp_col])
+
             table_ev_scan = st.dataframe(
                 df_display[table_columns], use_container_width=True, hide_index=True, on_select="rerun",
                 selection_mode="multi-row", column_config=get_left_aligned_column_config(table_columns), key=f"scan_table_{rc}_{sc}"
