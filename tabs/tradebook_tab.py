@@ -33,7 +33,7 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
     Prevents distortions when trade dates precede the short 15-day Market Monitor CSV.
     """
     val = fetch_nifty500_close_on_date(date_str, df_mm_tb)
-    if val is not None and val > 18000:
+    if val is not None and float(val) > 18000:
         return float(val)
     
     try:
@@ -47,7 +47,7 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
                 else:
                     return 23350.0
             elif dt.month >= 8:
-                return 23700.0
+                return 23681.0
     except Exception:
         pass
     
@@ -155,7 +155,12 @@ def render_tradebook_tab():
         sl_num_shared = trade_signatures[sig]
 
         unit_risk = max(0.01, b_price - sl_price)
-        nifty_buy_close = get_nifty500_price_fallback(date_b, df_mm_tb)
+        
+        # Override old invalid values saved in Gist
+        nifty_buy_close = float(tr.get("nifty500_buy_close", 0) or 0)
+        if nifty_buy_close < 18000:
+            nifty_buy_close = get_nifty500_price_fallback(date_b, df_mm_tb)
+            tr["nifty500_buy_close"] = nifty_buy_close
 
         if status == "OPEN":
             curr_price = float(
@@ -216,7 +221,11 @@ def render_tradebook_tab():
             realized_pnl_total += realized_pnl
             cash_balance += (booked_val - capital_invested)
 
-            nifty_sell_close = get_nifty500_price_fallback(date_s, df_mm_tb)
+            nifty_sell_close = float(tr.get("nifty500_sell_close", 0) or 0)
+            if nifty_sell_close < 18000:
+                nifty_sell_close = get_nifty500_price_fallback(date_s, df_mm_tb)
+                tr["nifty500_sell_close"] = nifty_sell_close
+
             bench_val = (
                 capital_invested * (nifty_sell_close / nifty_buy_close)
                 if nifty_buy_close > 0
