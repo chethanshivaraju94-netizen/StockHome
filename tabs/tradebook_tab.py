@@ -255,7 +255,7 @@ def render_tradebook_tab():
             "raw_status": status,
         })
 
-    # Calculate Total Portfolio NAV first so risk % can be accurately computed
+    # Calculate Total Portfolio NAV first
     total_portfolio_nav = cash_balance + open_current_val_total
 
     # ==========================================
@@ -319,10 +319,15 @@ def render_tradebook_tab():
         (open_risk_total / max(total_portfolio_nav, 1.0)) * 100
     )
 
+    # Allocations and Returns
+    cash_pct = (cash_balance / max(total_portfolio_nav, 1.0)) * 100 if total_portfolio_nav > 0 else 0.0
+    invested_pct = (open_current_val_total / max(total_portfolio_nav, 1.0)) * 100 if total_portfolio_nav > 0 else 0.0
+    net_return_inr = total_portfolio_nav - starting_cap
+
     bench_total_nav = cash_balance + bench_current_val_total
     alpha_inr = total_portfolio_nav - bench_total_nav
     portfolio_net_return_pct = (
-        ((total_portfolio_nav - starting_cap) / starting_cap) * 100
+        (net_return_inr / starting_cap) * 100
         if starting_cap > 0
         else 0.0
     )
@@ -336,11 +341,12 @@ def render_tradebook_tab():
     # --- TOP METRICS BAR ---
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        st.metric("Starting Capital", f"₹{starting_cap:,.2f}", f"Cash: ₹{cash_balance:,.2f}")
+        st.metric("Starting Capital", f"₹{starting_cap:,.2f}", f"Cash: ₹{cash_balance:,.2f} ({cash_pct:.1f}%)")
     with c2:
-        st.metric("Portfolio NAV", f"₹{total_portfolio_nav:,.2f}", f"{portfolio_net_return_pct:+.2f}% Net")
+        net_inr_sign = "+" if net_return_inr >= 0 else "-"
+        st.metric("Portfolio NAV", f"₹{total_portfolio_nav:,.2f}", f"{net_inr_sign}₹{abs(net_return_inr):,.2f} ({portfolio_net_return_pct:+.2f}%) Net")
     with c3:
-        st.metric("Open Invested Value", f"₹{open_invested_total:,.2f}", f"Live: ₹{open_current_val_total:,.2f}")
+        st.metric("Open Invested Value", f"₹{open_invested_total:,.2f}", f"Live: ₹{open_current_val_total:,.2f} ({invested_pct:.1f}%)")
     with c4:
         st.metric("Realized P&L", f"₹{realized_pnl_total:,.2f}", f"Unrealized: ₹{unrealized_pnl_total:,.2f}")
     with c5:
