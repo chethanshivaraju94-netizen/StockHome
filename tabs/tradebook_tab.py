@@ -4,7 +4,6 @@ from datetime import datetime, date
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 from tradingview_screener import Query, col
 from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
@@ -700,7 +699,7 @@ def render_tradebook_tab():
             st.markdown("#### 🗓️ Multi-Year Monthly Return Matrix (% of Capital)")
             st.dataframe(df_matrix, use_container_width=True, hide_index=True, column_config=get_left_aligned_column_config(df_matrix.columns))
 
-            # 2. Clean Monthly Point-to-Point Cumulative Equity Curve (Reference Layout)
+            # 2. Clean Monthly Cumulative Equity Curve (Reference Layout)
             df_monthly_agg = df_perf.groupby(["Year", "Month"]).agg(
                 Monthly_PnL=("Realised Gains (₹)", "sum"),
                 Date_Key=("Date_DT", "max")
@@ -709,9 +708,8 @@ def render_tradebook_tab():
             df_monthly_agg["Return_%"] = (df_monthly_agg["Monthly_PnL"] / starting_cap) * 100
             df_monthly_agg["Label"] = df_monthly_agg["Date_Key"].dt.strftime("%b %Y")
 
-            # Create clean sequence starting from baseline 0.0%
-            x_labels = ["Start"] + df_monthly_agg["Label"].tolist()
-            cum_vals = [0.0] + list(df_monthly_agg["Return_%"].cumsum())
+            x_labels = df_monthly_agg["Label"].tolist()
+            cum_vals = list(df_monthly_agg["Return_%"].cumsum())
 
             fig_equity = go.Figure()
             
@@ -720,16 +718,15 @@ def render_tradebook_tab():
                     x=x_labels,
                     y=cum_vals,
                     mode="lines+markers",
-                    line=dict(color="#22c55e", width=2.5, shape="spline"),
-                    marker=dict(size=7, color="#22c55e", symbol="circle"),
-                    fill="tozeroy",
-                    fillcolor="rgba(34, 197, 94, 0.08)",
+                    name="Cumulative P&L %",
+                    line=dict(color="#38bdf8", width=3),
+                    marker=dict(size=8, color="#38bdf8"),
                     hovertemplate="<b>%{x}</b><br>Cumulative P&L: %{y:+.2f}%<extra></extra>",
                 )
             )
 
             fig_equity.update_layout(
-                title="<b>Cumulative Realized Performance Curve (% P&L)</b>",
+                title="<b>Monthly Cumulative P&L % Growth Curve</b>",
                 template="plotly_dark",
                 height=320,
                 showlegend=False,
@@ -737,15 +734,15 @@ def render_tradebook_tab():
                 xaxis=dict(showgrid=True, gridcolor="#1e293b"),
                 yaxis=dict(showgrid=True, gridcolor="#1e293b", ticksuffix="%"),
             )
-            fig_equity.add_hline(y=0, line_dash="dash", line_color="#64748b", opacity=0.8)
+            fig_equity.add_hline(y=0, line_dash="solid", line_color="#64748b", opacity=0.8)
 
             st.plotly_chart(fig_equity, use_container_width=True)
 
-            # 3. Monthly Risk & Execution Tracker Matrix (Reverse Sorted with true Monthly Average Row)
+            # 3. Monthly Risk & Execution Tracker Matrix (Reverse Sorted with Average Row)
             st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
             
             monthly_groups = list(df_perf.groupby(["Year", "Month"]))
-            monthly_groups.sort(key=lambda x: (x[0][0], x[0][1]), reverse=True) # Newest month at top
+            monthly_groups.sort(key=lambda x: (x[0][0], x[0][1]), reverse=True)
 
             tracker_rows = []
             m_trades_list = []
@@ -787,12 +784,11 @@ def render_tradebook_tab():
                 m_max_gain_list.append(biggest_gain)
                 m_max_loss_list.append(biggest_loss)
                 m_days_gain_list.append(avg_days_win)
-                m_days_loss.append(avg_days_loss) if 'm_days_loss' in locals() else None
                 m_days_loss_list.append(avg_days_loss)
 
                 tracker_rows.append({
                     "Month": m_label,
-                    "Trades": trades_cnt,
+                    "Trades": str(trades_cnt),
                     "Total R": f"{tot_r:+.2f}R",
                     "RRR (Payoff)": f"{rrr:.2f}x",
                     "Win %": f"{win_pct:.1f}%",
@@ -804,7 +800,6 @@ def render_tradebook_tab():
                     "Avg Days Loss": f"{avg_days_loss:.1f}d",
                 })
 
-            # Append the True Monthly Average Row
             avg_trades = np.mean(m_trades_list) if m_trades_list else 0.0
             avg_tot_r = np.mean(m_total_r_list) if m_total_r_list else 0.0
             avg_rrr = np.mean(m_rrr_list) if m_rrr_list else 0.0
@@ -817,8 +812,8 @@ def render_tradebook_tab():
             avg_days_loss_m = np.mean(m_days_loss_list) if m_days_loss_list else 0.0
 
             tracker_rows.append({
-                "Month": "Monthly Avg",
-                "Trades": round(avg_trades, 1),
+                "Month": "Average",
+                "Trades": f"{avg_trades:.1f}",
                 "Total R": f"{avg_tot_r:+.2f}R",
                 "RRR (Payoff)": f"{avg_rrr:.2f}x",
                 "Win %": f"{avg_win_pct_m:.1f}%",
