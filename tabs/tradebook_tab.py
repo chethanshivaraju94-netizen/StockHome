@@ -47,7 +47,7 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
                 else:
                     return 23350.0
             elif dt.month >= 8:
-                return 23681.0
+                return 23681.15
     except Exception:
         pass
     
@@ -117,8 +117,9 @@ def render_tradebook_tab():
     open_invested_total = 0.0
     open_current_val_total = 0.0
 
-    bench_bought_total = 0.0
-    bench_current_val_total = 0.0
+    # True Non-Compounding Shadow Accounting
+    bench_open_live_val_total = 0.0
+    bench_realized_pnl_total = 0.0
     trades_beating_bench = 0
     evaluated_bench_trades = 0
 
@@ -155,12 +156,7 @@ def render_tradebook_tab():
         sl_num_shared = trade_signatures[sig]
 
         unit_risk = max(0.01, b_price - sl_price)
-        
-        # Override old invalid values saved in Gist
-        nifty_buy_close = float(tr.get("nifty500_buy_close", 0) or 0)
-        if nifty_buy_close < 18000:
-            nifty_buy_close = get_nifty500_price_fallback(date_b, df_mm_tb)
-            tr["nifty500_buy_close"] = nifty_buy_close
+        nifty_buy_close = get_nifty500_price_fallback(date_b, df_mm_tb)
 
         if status == "OPEN":
             curr_price = float(
@@ -184,22 +180,13 @@ def render_tradebook_tab():
 
             cash_balance -= capital_invested
 
-            bench_val = (
-                capital_invested * (latest_nifty_close / nifty_buy_close)
-                if nifty_buy_close > 0
-                else capital_invested
-            )
-            bench_bought_total += capital_invested
-            bench_current_val_total += bench_val
+            # Benchmark shadow open lot
+            bench_lot_val = capital_invested * (latest_nifty_close / nifty_buy_close) if nifty_buy_close > 0 else capital_invested
+            bench_open_live_val_total += bench_lot_val
 
-            lot_return_pct = (
-                ((curr_price - b_price) / b_price) * 100 if b_price > 0 else 0.0
-            )
-            bench_return_pct = (
-                ((latest_nifty_close - nifty_buy_close) / nifty_buy_close) * 100
-                if nifty_buy_close > 0
-                else 0.0
-            )
+            lot_return_pct = (((curr_price - b_price) / b_price) * 100) if b_price > 0 else 0.0
+            bench_return_pct = (((latest_nifty_close - nifty_buy_close) / nifty_buy_close) * 100) if nifty_buy_close > 0 else 0.0
+            
             if lot_return_pct > bench_return_pct:
                 trades_beating_bench += 1
             evaluated_bench_trades += 1
@@ -221,27 +208,15 @@ def render_tradebook_tab():
             realized_pnl_total += realized_pnl
             cash_balance += (booked_val - capital_invested)
 
-            nifty_sell_close = float(tr.get("nifty500_sell_close", 0) or 0)
-            if nifty_sell_close < 18000:
-                nifty_sell_close = get_nifty500_price_fallback(date_s, df_mm_tb)
-                tr["nifty500_sell_close"] = nifty_sell_close
+            nifty_sell_close = get_nifty500_price_fallback(date_s, df_mm_tb)
+            
+            # Benchmark shadow realized lot profit
+            bench_lot_pnl = capital_invested * ((nifty_sell_close - nifty_buy_close) / nifty_buy_close) if nifty_buy_close > 0 else 0.0
+            bench_realized_pnl_total += bench_lot_pnl
 
-            bench_val = (
-                capital_invested * (nifty_sell_close / nifty_buy_close)
-                if nifty_buy_close > 0
-                else capital_invested
-            )
-            bench_bought_total += capital_invested
-            bench_current_val_total += bench_val
-
-            lot_return_pct = (
-                ((sold_price - b_price) / b_price) * 100 if b_price > 0 else 0.0
-            )
-            bench_return_pct = (
-                ((nifty_sell_close - nifty_buy_close) / nifty_buy_close) * 100
-                if nifty_buy_close > 0
-                else 0.0
-            )
+            lot_return_pct = (((sold_price - b_price) / b_price) * 100) if b_price > 0 else 0.0
+            bench_return_pct = (((nifty_sell_close - nifty_buy_close) / nifty_buy_close) * 100) if nifty_buy_close > 0 else 0.0
+            
             if lot_return_pct > bench_return_pct:
                 trades_beating_bench += 1
             evaluated_bench_trades += 1
@@ -328,7 +303,6 @@ def render_tradebook_tab():
                 r["Portfolio Risk %"] = None
             else:
                 r["Status"] = "🟢 OPEN"
-                # If partial position has been sold, SL moved to BE -> Risk is 0.0%
                 if tot_sold > 0:
                     r["Portfolio Risk %"] = 0.0
                 else:
@@ -355,15 +329,20 @@ def render_tradebook_tab():
         else 0.0
     )
 
-    # Calculate Authentic Opportunity Cost Shadow NAV
-    bench_total_nav = cash_balance + bench_current_val_total
-    alpha_inr = total_portfolio_nav - bench_total_nav
+    # ==========================================
+    # BENCHMARK SHADOW ACCOUNTING (RECYCLED CASH BASIS)
+    # ==========================================
+    # Shadow NAV = Uninvested Cash + Live Value of Open Shadow Tranches + Realized Shadow Profits
+    bench_cash_allocated = starting_cap - open_invested_total
+    bench_total_nav = bench_cash_allocated + bench_open_live_val_total + bench_realized_pnl_total
+    
     bench_net_return_pct = (
         ((bench_total_nav - starting_cap) / starting_cap) * 100
         if starting_cap > 0
         else 0.0
     )
     alpha_pct = portfolio_net_return_pct - bench_net_return_pct
+    alpha_inr = total_portfolio_nav - bench_total_nav
 
     # --- TOP METRICS BAR ---
     c1, c2, c3, c4, c5 = st.columns(5)
