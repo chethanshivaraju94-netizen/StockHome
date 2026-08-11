@@ -41,8 +41,6 @@ def render_tradebook_tab():
     # ==========================================
     # 1. CHRONOLOGICAL SORTING ENGINE
     # ==========================================
-    # Sort trades descending by Date Bought to ensure newest setups are always on top.
-    # OPEN lots (1) placed on top of CLOSED lots (0) so remaining shares sit above partial exits.
     all_trades = sorted(
         raw_trades,
         key=lambda x: (
@@ -54,10 +52,9 @@ def render_tradebook_tab():
         reverse=True
     )
 
-    # Load market monitor for Nifty 500 benchmark lookup
     df_mm_tb = load_market_monitor_data()
 
-    # Enrich open trades with live prices explicitly matching exchange
+    # Enrich open trades with live prices
     open_trade_tickers = [
         t["ticker"] for t in all_trades if t.get("status") == "OPEN"
     ]
@@ -87,15 +84,12 @@ def render_tradebook_tab():
         except Exception:
             pass
 
-    # Calculate Cash, Portfolio Values, and Risk Metrics
     cash_balance = starting_cap
     realized_pnl_total = 0.0
     unrealized_pnl_total = 0.0
     open_invested_total = 0.0
     open_current_val_total = 0.0
-    open_risk_total = 0.0
 
-    # Benchmark Shadow Portfolio Variables
     bench_bought_total = 0.0
     bench_current_val_total = 0.0
     trades_beating_bench = 0
@@ -157,9 +151,6 @@ def render_tradebook_tab():
 
             realized_pnl = 0.0
             unrealized_pnl = sh_rem * (curr_price - b_price)
-
-            sh_risk = sh_rem * unit_risk
-            open_risk_total += sh_risk
 
             open_invested_total += capital_invested
             open_current_val_total += curr_val
@@ -248,6 +239,7 @@ def render_tradebook_tab():
             "Date Bought": date_b,
             "Buy Price (₹)": b_price,
             "Initial SL (₹)": sl_price,
+            "Unit Risk (₹)": unit_risk,
             "Current / Sold Price (₹)": curr_price,
             "Gain / Loss (₹)": tot_return_inr,
             "Realized R": f"{realized_r:+.2f}R" if status == "CLOSED" else "0.00R",
@@ -260,10 +252,14 @@ def render_tradebook_tab():
             "Capital Invested (₹)": capital_invested,
             "Current Value (₹)": curr_val,
             "Date Sold": date_s,
+            "raw_status": status,
         })
 
+    # Calculate Total Portfolio NAV first so risk % can be accurately computed
+    total_portfolio_nav = cash_balance + open_current_val_total
+
     # ==========================================
-    # GROUP METRICS: AGGREGATE RETURNS PER SETUP
+    # GROUP METRICS & PORTFOLIO RISK % LOGIC
     # ==========================================
     group_metrics = {}
     for r in processed_trade_rows:
@@ -273,23 +269,26 @@ def render_tradebook_tab():
                 "total_capital": 0.0,
                 "total_gain_loss": 0.0,
                 "total_shares_rem": 0,
+                "total_shares_sold": 0,
                 "rows_processed": 0
             }
         group_metrics[sig]["total_capital"] += r["Capital Invested (₹)"]
         group_metrics[sig]["total_gain_loss"] += r["Gain / Loss (₹)"]
         group_metrics[sig]["total_shares_rem"] += r["Shares Remaining"]
+        group_metrics[sig]["total_shares_sold"] += r["Shares Sold"]
 
-    # Assign aggregate Status, Avg Ret %, and Total Ret (₹) to rows
+    open_risk_total = 0.0
+
     for r in processed_trade_rows:
         sig = r["Signature"]
         tot_cap = group_metrics[sig]["total_capital"]
         tot_gl = group_metrics[sig]["total_gain_loss"]
         tot_rem = group_metrics[sig]["total_shares_rem"]
+        tot_sold = group_metrics[sig]["total_shares_sold"]
 
         r["Avg Ret %"] = (tot_gl / tot_cap * 100) if tot_cap > 0 else 0.0
         r["Total Ret (₹)"] = tot_gl
 
-        # Only assign the main WIN/LOSS/OPEN status to the top setup row
         is_first_row = (group_metrics[sig]["rows_processed"] == 0)
         group_metrics[sig]["rows_processed"] += 1
 
@@ -301,12 +300,21 @@ def render_tradebook_tab():
                     r["Status"] = "🔴 LOSS"
                 else:
                     r["Status"] = "⚪ SCRATCH"
+                r["Portfolio Risk %"] = None
             else:
                 r["Status"] = "🟢 OPEN"
+                # If partial position has been sold, SL moved to BE -> Risk is 0.0%
+                if tot_sold > 0:
+                    r["Portfolio Risk %"] = 0.0
+                else:
+                    lot_risk_inr = r["Shares Remaining"] * r["Unit Risk (₹)"]
+                    r_pct = (lot_risk_inr / max(total_portfolio_nav, 1.0)) * 100
+                    r["Portfolio Risk %"] = r_pct
+                    open_risk_total += lot_risk_inr
         else:
             r["Status"] = "PARTIAL EXIT"
+            r["Portfolio Risk %"] = None
 
-    total_portfolio_nav = cash_balance + open_current_val_total
     portfolio_heat_pct = (
         (open_risk_total / max(total_portfolio_nav, 1.0)) * 100
     )
@@ -582,17 +590,18 @@ def render_tradebook_tab():
             "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
             "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
             "Abs Return %", "Avg Ret %", "Total Ret (₹)", "Unrealised Value (₹)", 
-            "Capital Invested (₹)", "Current Value (₹)", "Allocation %"
+            "Capital Invested (₹)", "Current Value (₹)", "Allocation %", "Portfolio Risk %"
         ]
         for fc in float_cols_2dec:
             if fc in df_tb_display.columns:
                 df_tb_display[fc] = pd.to_numeric(df_tb_display[fc], errors="coerce").round(2)
 
-        # Visually deduplicate S.No., Avg Ret %, and Total Ret (₹) by grouping setup signature
+        # Visually deduplicate S.No., Avg Ret %, Total Ret (₹), and Portfolio Risk %
         seen_sigs = set()
         sno_display_list = []
         avg_ret_list = []
         tot_ret_list = []
+        port_risk_list = []
         for idx, row in df_tb_display.iterrows():
             sig = row["Signature"]
             if sig not in seen_sigs:
@@ -600,22 +609,25 @@ def render_tradebook_tab():
                 sno_display_list.append(str(row["S.No._num"]))
                 avg_ret_list.append(row["Avg Ret %"])
                 tot_ret_list.append(row["Total Ret (₹)"])
+                port_risk_list.append(row["Portfolio Risk %"])
             else:
                 sno_display_list.append("")
                 avg_ret_list.append(None)
                 tot_ret_list.append(None)
+                port_risk_list.append(None)
                 
         df_tb_display["S.No."] = sno_display_list
         df_tb_display["Avg Ret %"] = avg_ret_list
         df_tb_display["Total Ret (₹)"] = tot_ret_list
+        df_tb_display["Portfolio Risk %"] = port_risk_list
 
-        # Reordered columns to place Avg Ret % and Total Ret (₹) at the far right end
+        # Table column structure with Portfolio Risk % and returns positioned at the end
         tb_table_columns = [
             "S.No.", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
             "Initial SL (₹)", "Current / Sold Price (₹)", "Gain / Loss (₹)", "Realized R",
             "Shares Sold", "Booked Value (₹)", "Realised Gains (₹)", "Shares Remaining",
             "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)", 
-            "Current Value (₹)", "Allocation %", "Avg Ret %", "Total Ret (₹)",
+            "Current Value (₹)", "Allocation %", "Portfolio Risk %", "Avg Ret %", "Total Ret (₹)",
         ]
 
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
@@ -636,13 +648,11 @@ def render_tradebook_tab():
         st.markdown("---")
         st.subheader("📊 Elite Risk Management & Performance Analytics")
 
-        # Extract strictly fully closed setups for the Win/Loss metrics
         fully_closed_setups = [
             t for t in processed_trade_rows
             if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", ""))
         ]
         
-        # Sort fully closed setups descending by Date Sold to ensure streak tracks immediate past performance accurately
         fully_closed_setups = sorted(
             fully_closed_setups, 
             key=lambda x: x.get("Date Sold", "1900-01-01"), 
@@ -715,7 +725,6 @@ def render_tradebook_tab():
         st.markdown("---")
         st.subheader("📅 Trading Performance Calendar")
         
-        # Calendar uses ALL closed lots (including partials) to map cash flow to specific days
         all_closed_lots = [t for t in processed_trade_rows if t["Shares Sold"] > 0]
         
         if len(all_closed_lots) == 0:
