@@ -41,14 +41,14 @@ def render_tradebook_tab():
     # ==========================================
     # 1. CHRONOLOGICAL SORTING ENGINE
     # ==========================================
-    # Sort trades descending by Date Bought to ensure newest setups are always on top
-    # Sub-sort by ticker, status (OPEN on top of CLOSED), and Date Sold for partial exits
+    # Sort trades descending by Date Bought to ensure newest setups are always on top.
+    # OPEN lots (1) placed on top of CLOSED lots (0) so remaining shares sit above partial exits.
     all_trades = sorted(
         raw_trades,
         key=lambda x: (
             x.get("date_bought", "1900-01-01"),
             x.get("ticker", ""),
-            0 if x.get("status") == "OPEN" else 1,
+            1 if x.get("status") == "OPEN" else 0,
             x.get("date_sold", "1900-01-01")
         ),
         reverse=True
@@ -289,7 +289,7 @@ def render_tradebook_tab():
         r["Avg Ret %"] = (tot_gl / tot_cap * 100) if tot_cap > 0 else 0.0
         r["Total Ret (₹)"] = tot_gl
 
-        # Only assign the main WIN/LOSS/OPEN to the primary setup row
+        # Only assign the main WIN/LOSS/OPEN status to the top setup row
         is_first_row = (group_metrics[sig]["rows_processed"] == 0)
         group_metrics[sig]["rows_processed"] += 1
 
@@ -609,12 +609,13 @@ def render_tradebook_tab():
         df_tb_display["Avg Ret %"] = avg_ret_list
         df_tb_display["Total Ret (₹)"] = tot_ret_list
 
+        # Reordered columns to place Avg Ret % and Total Ret (₹) at the far right end
         tb_table_columns = [
             "S.No.", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
             "Initial SL (₹)", "Current / Sold Price (₹)", "Gain / Loss (₹)", "Realized R",
             "Shares Sold", "Booked Value (₹)", "Realised Gains (₹)", "Shares Remaining",
-            "Abs Return %", "Avg Ret %", "Total Ret (₹)", "Unrealised Value (₹)", 
-            "Capital Invested (₹)", "Current Value (₹)", "Allocation %",
+            "Abs Return %", "Unrealised Value (₹)", "Capital Invested (₹)", 
+            "Current Value (₹)", "Allocation %", "Avg Ret %", "Total Ret (₹)",
         ]
 
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
