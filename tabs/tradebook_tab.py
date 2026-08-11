@@ -2,6 +2,9 @@ import time
 import calendar
 from datetime import datetime, date
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from tradingview_screener import Query, col
 from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
@@ -28,10 +31,6 @@ def format_currency_cal(val):
 
 
 def get_nifty500_price_fallback(date_str, df_mm_tb):
-    """
-    Robust Nifty 500 historical level lookup.
-    Prevents distortions when trade dates precede the short 15-day Market Monitor CSV.
-    """
     val = fetch_nifty500_close_on_date(date_str, df_mm_tb)
     if val is not None and float(val) > 18000:
         return float(val)
@@ -40,12 +39,9 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
         dt = pd.to_datetime(date_str)
         if dt.year == 2026:
             if dt.month <= 6:
-                return 22438.0  # June 2026 baseline
+                return 22438.0
             elif dt.month == 7:
-                if dt.day <= 15:
-                    return 23150.0
-                else:
-                    return 23350.0
+                return 23150.0 if dt.day <= 15 else 23350.0
             elif dt.month >= 8:
                 return 23681.15
     except Exception:
@@ -65,9 +61,6 @@ def render_tradebook_tab():
     starting_cap = float(tb_data.get("config", {}).get("starting_capital", 500000.0))
     raw_trades = tb_data.get("trades", [])
 
-    # ==========================================
-    # 1. CHRONOLOGICAL SORTING ENGINE
-    # ==========================================
     all_trades = sorted(
         raw_trades,
         key=lambda x: (
@@ -81,7 +74,6 @@ def render_tradebook_tab():
 
     df_mm_tb = load_market_monitor_data()
 
-    # Enrich open trades with live prices
     open_trade_tickers = [
         t["ticker"] for t in all_trades if t.get("status") == "OPEN"
     ]
@@ -117,7 +109,6 @@ def render_tradebook_tab():
     open_invested_total = 0.0
     open_current_val_total = 0.0
 
-    # True Non-Compounding Shadow Accounting
     bench_open_live_val_total = 0.0
     bench_realized_pnl_total = 0.0
     trades_beating_bench = 0
@@ -180,7 +171,6 @@ def render_tradebook_tab():
 
             cash_balance -= capital_invested
 
-            # Benchmark shadow open lot
             bench_lot_val = capital_invested * (latest_nifty_close / nifty_buy_close) if nifty_buy_close > 0 else capital_invested
             bench_open_live_val_total += bench_lot_val
 
@@ -192,6 +182,7 @@ def render_tradebook_tab():
             evaluated_bench_trades += 1
 
             realized_r = 0.0
+            r_num = 0.0
 
         else:
             sold_price = float(tr.get("sell_price", b_price))
@@ -209,8 +200,6 @@ def render_tradebook_tab():
             cash_balance += (booked_val - capital_invested)
 
             nifty_sell_close = get_nifty500_price_fallback(date_s, df_mm_tb)
-            
-            # Benchmark shadow realized lot profit
             bench_lot_pnl = capital_invested * ((nifty_sell_close - nifty_buy_close) / nifty_buy_close) if nifty_buy_close > 0 else 0.0
             bench_realized_pnl_total += bench_lot_pnl
 
@@ -221,9 +210,8 @@ def render_tradebook_tab():
                 trades_beating_bench += 1
             evaluated_bench_trades += 1
 
-            realized_r = (
-                realized_pnl / (sh_sold * unit_risk) if (sh_sold * unit_risk) > 0 else 0.0
-            )
+            r_num = realized_pnl / (sh_sold * unit_risk) if (sh_sold * unit_risk) > 0 else 0.0
+            realized_r = r_num
 
         tot_return_inr = realized_pnl + unrealized_pnl
         abs_return_pct = (
@@ -243,6 +231,7 @@ def render_tradebook_tab():
             "Current / Sold Price (₹)": curr_price,
             "Gain / Loss (₹)": tot_return_inr,
             "Realized R": f"{realized_r:+.2f}R" if status == "CLOSED" else "0.00R",
+            "Realized R Num": r_num,
             "Shares Sold": sh_sold,
             "Booked Value (₹)": booked_val,
             "Realised Gains (₹)": realized_pnl,
@@ -255,12 +244,8 @@ def render_tradebook_tab():
             "raw_status": status,
         })
 
-    # Calculate Total Portfolio NAV
     total_portfolio_nav = cash_balance + open_current_val_total
 
-    # ==========================================
-    # GROUP METRICS & PORTFOLIO RISK % LOGIC
-    # ==========================================
     group_metrics = {}
     for r in processed_trade_rows:
         sig = r["Signature"]
@@ -318,7 +303,6 @@ def render_tradebook_tab():
         (open_risk_total / max(total_portfolio_nav, 1.0)) * 100
     )
 
-    # Allocations and Returns
     cash_pct = (cash_balance / max(total_portfolio_nav, 1.0)) * 100 if total_portfolio_nav > 0 else 0.0
     invested_pct = (open_current_val_total / max(total_portfolio_nav, 1.0)) * 100 if total_portfolio_nav > 0 else 0.0
     net_return_inr = total_portfolio_nav - starting_cap
@@ -329,10 +313,6 @@ def render_tradebook_tab():
         else 0.0
     )
 
-    # ==========================================
-    # BENCHMARK SHADOW ACCOUNTING (RECYCLED CASH BASIS)
-    # ==========================================
-    # Shadow NAV = Uninvested Cash + Live Value of Open Shadow Tranches + Realized Shadow Profits
     bench_cash_allocated = starting_cap - open_invested_total
     bench_total_nav = bench_cash_allocated + bench_open_live_val_total + bench_realized_pnl_total
     
@@ -598,7 +578,6 @@ def render_tradebook_tab():
         else:
             df_tb_display["Allocation %"] = 0.0
 
-        # Numeric rounding before deduplication
         float_cols_2dec = [
             "Buy Price (₹)", "Initial SL (₹)", "Current / Sold Price (₹)",
             "Gain / Loss (₹)", "Booked Value (₹)", "Realised Gains (₹)",
@@ -609,7 +588,6 @@ def render_tradebook_tab():
             if fc in df_tb_display.columns:
                 df_tb_display[fc] = pd.to_numeric(df_tb_display[fc], errors="coerce").round(2)
 
-        # Visually deduplicate S.No., Avg Ret %, Total Ret (₹), and Portfolio Risk %
         seen_sigs = set()
         sno_display_list = []
         avg_ret_list = []
@@ -634,7 +612,6 @@ def render_tradebook_tab():
         df_tb_display["Total Ret (₹)"] = tot_ret_list
         df_tb_display["Portfolio Risk %"] = port_risk_list
 
-        # Table column structure with Portfolio Risk % and returns positioned at the end
         tb_table_columns = [
             "S.No.", "Ticker", "Status", "Shares Bought", "Date Bought", "Buy Price (₹)",
             "Initial SL (₹)", "Current / Sold Price (₹)", "Gain / Loss (₹)", "Realized R",
@@ -657,9 +634,164 @@ def render_tradebook_tab():
             column_config=get_left_aligned_column_config(tb_table_columns),
         )
 
-        # --- INSTITUTIONAL PERFORMANCE ANALYTICS ---
+        # =========================================================================
+        # 📈 INSTITUTIONAL PERFORMANCE STUDIO & MULTI-YEAR MONTHLY ANALYTICS
+        # =========================================================================
         st.markdown("---")
-        st.subheader("📊 Elite Risk Management & Performance Analytics")
+        st.subheader("📈 Institutional Performance Studio & Monthly Seasonality")
+        st.caption("Multi-year monthly P&L matrix, historical seasonality averages, and cumulative growth curve.")
+
+        all_closed_lots = [t for t in processed_trade_rows if t["Shares Sold"] > 0]
+        
+        if all_closed_lots:
+            df_perf = pd.DataFrame(all_closed_lots)
+            df_perf["Date_DT"] = pd.to_datetime(df_perf["Date Sold"], errors="coerce")
+            df_perf = df_perf.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
+
+            def get_holding_days(row):
+                try:
+                    d1 = datetime.strptime(row["Date Bought"], "%Y-%m-%d")
+                    d2 = datetime.strptime(row["Date Sold"], "%Y-%m-%d")
+                    return max(1, (d2 - d1).days)
+                except Exception:
+                    return 1
+
+            df_perf["Holding_Days"] = df_perf.apply(get_holding_days, axis=1)
+            df_perf["Year"] = df_perf["Date_DT"].dt.year
+            df_perf["Month"] = df_perf["Date_DT"].dt.month
+            df_perf["Month_Name"] = df_perf["Date_DT"].dt.strftime("%b")
+
+            # 1. Multi-Year Monthly P&L Matrix
+            all_years = sorted(df_perf["Year"].unique().tolist(), reverse=True)
+            month_abbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            
+            matrix_data = []
+            for y in all_years:
+                row_dict = {"Year": str(y)}
+                y_pnl_cum = 0.0
+                for m_idx, m_name in enumerate(month_abbrs, 1):
+                    subset = df_perf[(df_perf["Year"] == y) & (df_perf["Month"] == m_idx)]
+                    if not subset.empty:
+                        m_pnl = subset["Realised Gains (₹)"].sum()
+                        m_ret_pct = (m_pnl / starting_cap) * 100
+                        row_dict[m_name] = f"{m_ret_pct:+.2f}%"
+                        y_pnl_cum += m_pnl
+                    else:
+                        row_dict[m_name] = "-"
+                y_tot_pct = (y_pnl_cum / starting_cap) * 100
+                row_dict["YTD Total"] = f"{y_tot_pct:+.2f}%"
+                matrix_data.append(row_dict)
+
+            # Historical Seasonality Average
+            seasonality_row = {"Year": "Historical Avg"}
+            for m_idx, m_name in enumerate(month_abbrs, 1):
+                m_pnls = []
+                for y in all_years:
+                    sub = df_perf[(df_perf["Year"] == y) & (df_perf["Month"] == m_idx)]
+                    if not sub.empty:
+                        m_pnls.append((sub["Realised Gains (₹)"].sum() / starting_cap) * 100)
+                if m_pnls:
+                    avg_m = sum(m_pnls) / len(m_pnls)
+                    seasonality_row[m_name] = f"{avg_m:+.2f}%"
+                else:
+                    seasonality_row[m_name] = "-"
+            seasonality_row["YTD Total"] = "-"
+            matrix_data.append(seasonality_row)
+
+            df_matrix = pd.DataFrame(matrix_data)
+            st.markdown("#### 🗓️ Multi-Year Monthly Return Matrix (% of Capital)")
+            st.dataframe(df_matrix, use_container_width=True, hide_index=True, column_config=get_left_aligned_column_config(df_matrix.columns))
+
+            # 2. Dual-Axis Cumulative Equity Curve & Monthly Bars
+            df_monthly_bar = df_perf.groupby(["Year", "Month"]).agg(
+                Monthly_PnL=("Realised Gains (₹)", "sum"),
+                Date_Key=("Date_DT", "max")
+            ).reset_index().sort_values("Date_Key")
+
+            df_monthly_bar["Return_%"] = (df_monthly_bar["Monthly_PnL"] / starting_cap) * 100
+            df_monthly_bar["Cum_PnL"] = df_monthly_bar["Monthly_PnL"].cumsum()
+            df_monthly_bar["Cum_Return_%"] = (df_monthly_bar["Cum_PnL"] / starting_cap) * 100
+            df_monthly_bar["Label"] = df_monthly_bar["Date_Key"].dt.strftime("%b %Y")
+
+            fig_perf = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            bar_colors = ["#22c55e" if val >= 0 else "#ef4444" for val in df_monthly_bar["Return_%"]]
+            fig_perf.add_trace(
+                go.Bar(
+                    x=df_monthly_bar["Label"],
+                    y=df_monthly_bar["Return_%"],
+                    name="Monthly Return %",
+                    marker_color=bar_colors,
+                    opacity=0.7,
+                ),
+                secondary_y=False,
+            )
+
+            fig_perf.add_trace(
+                go.Scatter(
+                    x=df_monthly_bar["Label"],
+                    y=df_monthly_bar["Cum_Return_%"],
+                    name="Cumulative Portfolio Growth %",
+                    mode="lines+markers",
+                    line=dict(color="#38bdf8", width=3),
+                    marker=dict(size=6),
+                ),
+                secondary_y=True,
+            )
+
+            fig_perf.update_layout(
+                title="<b>Cumulative Equity Curve & Monthly Realized Return Profile</b>",
+                template="plotly_dark",
+                height=420,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            fig_perf.update_yaxes(title_text="Monthly Return (%)", secondary_y=False)
+            fig_perf.update_yaxes(title_text="Cumulative Net Return (%)", secondary_y=True)
+            st.plotly_chart(fig_perf, use_container_width=True)
+
+            # 3. Monthly Risk & Execution Tracker Matrix
+            st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
+            tracker_rows = []
+            for (y, m), group in df_perf.groupby(["Year", "Month"]):
+                m_label = group["Date_DT"].iloc[0].strftime("%b %Y")
+                trades_cnt = len(group)
+                tot_r = group["Realized R Num"].sum()
+                
+                wins = group[group["Realised Gains (₹)"] > 0]
+                losses = group[group["Realised Gains (₹)"] <= 0]
+                win_pct = (len(wins) / trades_cnt) * 100 if trades_cnt > 0 else 0.0
+                
+                avg_gain = wins["Abs Return %"].mean() if not wins.empty else 0.0
+                avg_loss = abs(losses["Abs Return %"].mean()) if not losses.empty else 0.0
+                rrr = (avg_gain / avg_loss) if avg_loss > 0 else avg_gain
+                
+                biggest_gain = group["Abs Return %"].max()
+                biggest_loss = group["Abs Return %"].min()
+                
+                avg_days_win = wins["Holding_Days"].mean() if not wins.empty else 0.0
+                avg_days_loss = losses["Holding_Days"].mean() if not losses.empty else 0.0
+                
+                tracker_rows.append({
+                    "Month": m_label,
+                    "Trades": trades_cnt,
+                    "Total R": f"{tot_r:+.2f}R",
+                    "RRR (Payoff)": f"{rrr:.2f}x",
+                    "Win %": f"{win_pct:.1f}%",
+                    "Avg Gain %": f"+{avg_gain:.2f}%",
+                    "Avg Loss %": f"-{avg_loss:.2f}%",
+                    "Biggest Gain": f"{biggest_gain:+.2f}%",
+                    "Biggest Loss": f"{biggest_loss:+.2f}%",
+                    "Avg Days Win": f"{avg_days_win:.1f}d",
+                    "Avg Days Loss": f"{avg_days_loss:.1f}d",
+                })
+
+            df_monthly_tracker = pd.DataFrame(tracker_rows)
+            st.dataframe(df_monthly_tracker, use_container_width=True, hide_index=True, column_config=get_left_aligned_column_config(df_monthly_tracker.columns))
+
+        # --- INSTITUTIONAL PERFORMANCE ANALYTICS SUMMARY ---
+        st.markdown("---")
+        st.subheader("📊 Performance Analytics & Risk Metrics")
 
         fully_closed_setups = [
             t for t in processed_trade_rows
@@ -737,8 +869,6 @@ def render_tradebook_tab():
         # --- TRADING PERFORMANCE VISUAL CALENDAR ---
         st.markdown("---")
         st.subheader("📅 Trading Performance Calendar")
-        
-        all_closed_lots = [t for t in processed_trade_rows if t["Shares Sold"] > 0]
         
         if len(all_closed_lots) == 0:
             st.info("No closed trades available to generate the Trading Calendar yet.")
