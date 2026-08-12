@@ -119,20 +119,23 @@ def render_power_play_tab():
                 # ==========================================
                 st.write("📡 **Tier 1:** Querying Live Exchange Breadth (TradingView)...")
                 
-                # Turnover requirement: Volume * Close > 100,000,000 (10 Cr INR approx)
                 q = (
                     Query()
                     .set_markets('india')
                     .select('name', 'exchange', 'close', 'volume')
                     .where(
-                        col('change|1W') > 4,  # Broaden slightly to catch >5% gaps that faded a bit
+                        col('change|1W') > 4,  
                         col('close') > col('SMA50'),
-                        col('close') > col('SMA200'),
-                        (col('volume') * col('close')) > 100000000 
+                        col('close') > col('SMA200')
                     )
                 )
                 _, df_tv = q.get_scanner_data()
                 
+                if not df_tv.empty:
+                    # Apply Turnover requirement in Pandas (Volume * Close > 10 Cr INR approx)
+                    df_tv['turnover'] = df_tv['volume'] * df_tv['close']
+                    df_tv = df_tv[df_tv['turnover'] > 100000000]
+
                 if df_tv.empty:
                     status.update(label="No candidates passed Tier 1 liquidity filters.", state="error")
                     st.stop()
@@ -168,7 +171,7 @@ def render_power_play_tab():
         # ==========================================
         # DISPLAY RESULTS
         # ==========================================
-        if not df_results.empty:
+        if 'df_results' in locals() and not df_results.empty:
             st.subheader(f"🎯 Actionable Round 2 Setups ({len(df_results)})")
             st.dataframe(
                 df_results, 
@@ -176,5 +179,5 @@ def render_power_play_tab():
                 hide_index=True,
                 column_config=get_left_aligned_column_config(df_results.columns.tolist())
             )
-        else:
+        elif 'df_results' in locals() and df_results.empty:
             st.warning("No stocks passed the strict Power Play criteria today. Cash is a position.")
