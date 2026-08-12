@@ -321,11 +321,12 @@ st.sidebar.slider("Max Results to Fetch:", min_value=1000, max_value=5000, value
 # ==========================================
 # RENDER MAIN TABS
 # ==========================================
-tab_screener, tab_watchlists, tab_tradebook, tab_market_health = st.tabs([
+tab_screener, tab_watchlists, tab_tradebook, tab_market_health, tab_power_play = st.tabs([
     "🔎 CAN SLIM Screener & Rotation",
     "⭐ Multi-Watchlist Studio & TV Free-Tier Bridge",
     "📓 Tradebook & Portfolio Journal",
     "🏥 Market Health & Sector Rotation",
+    "🔥 Episodic Pivots & Power Plays"
 ])
 
 # Import and execute tab components
@@ -333,6 +334,7 @@ from tabs.screener_tab import render_screener_tab
 from tabs.watchlist_tab import render_watchlist_tab
 from tabs.tradebook_tab import render_tradebook_tab
 from tabs.market_health_tab import render_market_health_tab
+from tabs.power_play_tab import render_power_play_tab
 
 with tab_screener:
     render_screener_tab()
@@ -345,3 +347,6 @@ with tab_tradebook:
 
 with tab_market_health:
     render_market_health_tab()
+
+with tab_power_play:
+    render_power_play_tab()
