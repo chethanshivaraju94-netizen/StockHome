@@ -16,7 +16,7 @@ st.markdown(TABLE_CUSTOM_CSS, unsafe_allow_html=True)
 # Initialize all Session State variables from GitHub Gists
 init_session_state()
 
-st.title("📈 India Equities Screener & Watchlist Studio")
+st.title("📈 StockHome")
 st.markdown(
     "Professional **CAN SLIM Screener**, **Hierarchical Sector Rotation**, "
     "**Multi-Watchlist Studio**, and **Tradebook Risk Journal**."
