@@ -65,8 +65,10 @@ def render_tradebook_tab():
     all_trades = sorted(
         raw_trades,
         key=lambda x: (
-            pd.to_datetime(x.get("date_bought", "1900-01-01")),
+            x.get("date_bought", "1900-01-01"),
+            x.get("ticker", ""),
             1 if x.get("status") == "OPEN" else 0,
+            x.get("date_sold", "1900-01-01")
         ),
         reverse=True
     )
@@ -367,10 +369,6 @@ def render_tradebook_tab():
     # ==========================================
     df_tb_display = pd.DataFrame(processed_trade_rows)
     
-    if not df_tb_display.empty:
-        df_tb_display["Sort_Date"] = pd.to_datetime(df_tb_display["Date Bought"], errors="coerce")
-        df_tb_display = df_tb_display.sort_values(by=["Sort_Date", "Ticker"], ascending=[False, True]).drop(columns=["Sort_Date"]).reset_index(drop=True)
-
     tb_filter = st.session_state.get("tb_display_filter", "All Positions")
 
     if not df_tb_display.empty:
@@ -598,7 +596,6 @@ def render_tradebook_tab():
 
     @st.dialog("👁️ Review Trade Post-Mortem", width="large")
     def show_review_modal(initial_t_id, valid_trade_ids):
-        # Manage Session State without triggering full page reruns
         def update_curr_id(new_id):
             st.session_state["review_modal_current_id"] = new_id
 
@@ -651,7 +648,6 @@ def render_tradebook_tab():
 
         st.markdown("---")
         
-        # Fetch data with smart fallback for partial exits
         safe_entry_url = get_trade_property_with_fallback(sel_tr, "entry_chart_url")
         safe_trade_notes = get_trade_property_with_fallback(sel_tr, "trade_notes")
         safe_exit_url = sel_tr.get("exit_chart_url", "")
@@ -659,7 +655,6 @@ def render_tradebook_tab():
         # Tabs for Charts and Notes Layout
         tab1, tab2, tab3 = st.tabs(["🟢 Entry Charts", "🔴 Exit Charts", "📝 Trade Notes & Lessons"])
         
-        # Robust Multi-Image Rendering Engine
         def render_multi_charts(url_string):
             if not url_string:
                 st.info("No chart URLs provided.")
@@ -689,7 +684,6 @@ def render_tradebook_tab():
             render_multi_charts(safe_exit_url)
             
         with tab3:
-            # Need a unique key for the text area so it updates when cycling trades
             notes = st.text_area("📝 Trade Notes & Lessons Learned:", value=safe_trade_notes, height=250, key=f"notes_area_{curr_id}")
             if st.button("💾 Save Notes", key=f"save_btn_{curr_id}", use_container_width=True):
                 sel_tr["trade_notes"] = notes
