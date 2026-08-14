@@ -367,7 +367,6 @@ def render_tradebook_tab():
     # ==========================================
     df_tb_display = pd.DataFrame(processed_trade_rows)
     
-    # Strict secondary sorting for display table to ensure newest dates are top
     if not df_tb_display.empty:
         df_tb_display["Sort_Date"] = pd.to_datetime(df_tb_display["Date Bought"], errors="coerce")
         df_tb_display = df_tb_display.sort_values(by=["Sort_Date", "Ticker"], ascending=[False, True]).drop(columns=["Sort_Date"]).reset_index(drop=True)
@@ -466,16 +465,13 @@ def render_tradebook_tab():
             s_price = st.number_input("Sell Price (₹):", min_value=0.1, value=sel_lot["buy_price"], step=1.0)
             
             exit_chart_url = st.text_input("Exit Chart Image URL(s) (Optional):", placeholder="Paste TradingView image link(s)...")
-            
-            # Use appending logic so original notes are never erased
-            st.caption("📝 Original notes are preserved automatically. Add new exit notes below:")
+            st.caption("📝 Original notes are preserved. Add new exit notes below:")
             new_exit_notes = st.text_area("Exit Notes / Lessons (will be appended):", placeholder="What did you do well? What could be improved?")
 
             if st.form_submit_button("💾 Execute Exit / Partial Sell", use_container_width=True):
                 date_s_str = s_date.strftime("%Y-%m-%d")
                 nifty_close_sell = get_nifty500_price_fallback(date_s_str, df_mm_tb)
                 
-                # Safely construct the new combined notes
                 final_notes = sel_lot.get("trade_notes", "")
                 if new_exit_notes.strip():
                     prefix = "\n\n--- Exit Notes ---\n" if final_notes.strip() else ""
@@ -504,11 +500,10 @@ def render_tradebook_tab():
                         "nifty500_buy_close": sel_lot.get("nifty500_buy_close", get_nifty500_price_fallback(sel_lot["date_bought"], df_mm_tb)),
                         "nifty500_sell_close": nifty_close_sell,
                         "entry_chart_url": sel_lot.get("entry_chart_url", ""),
-                        "exit_chart_url": exit_chart_url,
+                        "exit_chart_url": exit_chart_url, # Only the closed partial lot gets the exit chart
                         "trade_notes": final_notes,
                     }
                     sel_lot["shares_bought"] -= s_shares
-                    # Original open lot keeps its original notes without the exit context
                     st.session_state.tradebook["trades"].append(closed_split_lot)
 
                 save_tradebook(st.session_state.tradebook)
@@ -580,7 +575,7 @@ def render_tradebook_tab():
                 st.success("Trade deleted successfully!")
                 st.rerun()
 
-    @st.dialog("👁️ Post-Trade Review Studio", width="large")
+    @st.dialog("👁️ Review Trade Post-Mortem", width="large")
     def show_review_modal(initial_t_id):
         # Manage Session State for Interactive Navigation
         if "review_modal_init_id" not in st.session_state or st.session_state["review_modal_init_id"] != initial_t_id:
@@ -589,8 +584,8 @@ def render_tradebook_tab():
             
         curr_id = st.session_state["review_modal_current_id"]
         
-        # Pull display order mathematically to sync with table
-        trade_ids = [r["trade_id"] for r in df_tb_display.to_dict('records')]
+        # Get sorted trade IDs to match table display (newest dates first)
+        trade_ids = [r["trade_id"] for r in processed_trade_rows]
         
         if curr_id not in trade_ids:
             st.error("Trade data not found.")
@@ -599,7 +594,7 @@ def render_tradebook_tab():
         curr_idx = trade_ids.index(curr_id)
         
         # Interactive Navigation Bar
-        nav_col1, nav_col2, nav_col3 = st.columns([1.5, 2, 1.5])
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
         with nav_col1:
             if st.button("⬅️ Previous Trade", disabled=(curr_idx == 0), use_container_width=True):
                 st.session_state["review_modal_current_id"] = trade_ids[curr_idx - 1]
@@ -615,9 +610,9 @@ def render_tradebook_tab():
         
         # Fetch Target Trade Data
         sel_tr = next((tr for tr in st.session_state.tradebook["trades"] if tr.get("id") == curr_id), None)
-        p_row = next((r for r in df_tb_display.to_dict('records') if r["trade_id"] == curr_id), None)
+        p_row = next((r for r in processed_trade_rows if r["trade_id"] == curr_id), None)
         
-        st.subheader(f"🔍 {p_row['Ticker']} | {p_row['Status']}")
+        st.markdown(f"### 🔍 {p_row['Ticker']} | {p_row['raw_status']}")
         
         try:
             d1 = pd.to_datetime(p_row['Date Bought'])
@@ -627,9 +622,10 @@ def render_tradebook_tab():
             days_held = 1
         
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Abs Return %", f"{p_row['Abs Return %']:+.2f}%")
-        m2.metric("Realized R", p_row['Realized R'])
-        m3.metric("Gain / Loss", f"₹{p_row['Gain / Loss (₹)']:,.2f}")
+        m1.metric("Return %", f"{p_row['Abs Return %']:+.2f}%")
+        pnl_val = p_row['Gain / Loss (₹)']
+        m2.metric("P&L (₹)", f"{'+' if pnl_val >= 0 else '-'}₹{abs(pnl_val):,.1f}")
+        m3.metric("R-Multiple", p_row['Realized R'] if p_row['raw_status'] == 'CLOSED' else "OPEN")
         m4.metric("Days Held", f"{days_held}d")
 
         st.markdown("---")
@@ -640,7 +636,7 @@ def render_tradebook_tab():
         # Robust Multi-Image Rendering Engine
         def render_multi_charts(url_string):
             if not url_string:
-                st.info("No chart URLs provided for this stage.")
+                st.info("No chart URLs provided.")
                 return
                 
             urls = [u.strip() for u in re.split(r'[,;\s\n]+', url_string) if u.strip().startswith('http')]
@@ -649,11 +645,9 @@ def render_tradebook_tab():
                 return
                 
             for i, url in enumerate(urls):
-                st.markdown(
-                    f'<img src="{url}" style="width: 100%; border-radius: 8px; margin-bottom: 15px; border: 1px solid #334155;">', 
-                    unsafe_allow_html=True
-                )
-                st.caption(f"🔗 [Open Chart {i+1} in Browser]({url})")
+                st.image(url, use_container_width=True)
+                st.markdown(f"🔗 <a href='{url}' target='_blank'>Open Chart {i+1} in Browser</a>", unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
         
         with tab1:
             render_multi_charts(sel_tr.get("entry_chart_url", ""))
