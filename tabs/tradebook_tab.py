@@ -616,13 +616,12 @@ def render_tradebook_tab():
             raw_e_urls = raw_tr.get("entry_chart_urls", "")
             urls = re.findall(r'(https?://[^\s]+)', raw_e_urls)
             if urls:
+                try:
+                    st.image(urls[0], use_container_width=True)
+                except Exception:
+                    pass
                 for idx, u in enumerate(urls):
-                    try:
-                        st.image(u, use_container_width=True)
-                        st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
-                    except Exception:
-                        st.markdown(f"[🔗 View Chart {idx+1}]({u})")
-                    st.markdown("---")
+                    st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
             else:
                 st.info("No Entry Charts saved. You can add them anytime via the Edit button.")
                 
@@ -630,13 +629,12 @@ def render_tradebook_tab():
             raw_x_urls = raw_tr.get("exit_chart_urls", "")
             urls = re.findall(r'(https?://[^\s]+)', raw_x_urls)
             if urls:
+                try:
+                    st.image(urls[0], use_container_width=True)
+                except Exception:
+                    pass
                 for idx, u in enumerate(urls):
-                    try:
-                        st.image(u, use_container_width=True)
-                        st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
-                    except Exception:
-                        st.markdown(f"[🔗 View Chart {idx+1}]({u})")
-                    st.markdown("---")
+                    st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
             else:
                 st.info("No Exit Charts saved.")
                 
