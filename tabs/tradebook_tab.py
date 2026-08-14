@@ -4,7 +4,6 @@ from datetime import datetime, date
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 from tradingview_screener import Query, col
 from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
@@ -53,8 +52,8 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
 def render_tradebook_tab():
     st.subheader("📓 Tradebook & Institutional Risk Journal")
     st.caption(
-        "Lot-based execution tracking, visual journaling, portfolio"
-        " heat, Shadow Benchmark Alpha, and Performance Calendar."
+        "Lot-based execution tracking, 1R risk-reward metrics, portfolio"
+        " heat, Nifty 500 Shadow Benchmark Alpha, and Trading Performance Calendar."
     )
 
     tb_data = st.session_state.tradebook
@@ -499,6 +498,12 @@ def render_tradebook_tab():
                     }
                     sel_lot["shares_bought"] -= s_shares
                     sel_lot["trade_notes"] = new_notes.strip()
+                    
+                    existing_x_urls = sel_lot.get("exit_chart_urls", "")
+                    new_x_urls = x_urls.strip()
+                    if new_x_urls:
+                        sel_lot["exit_chart_urls"] = (existing_x_urls + "\n" + new_x_urls).strip()
+                        
                     st.session_state.tradebook["trades"].append(closed_split_lot)
 
                 save_tradebook(st.session_state.tradebook)
@@ -607,7 +612,8 @@ def render_tradebook_tab():
         t1, t2, t3 = st.tabs(["🟢 Entry Charts", "🔴 Exit Charts", "📝 Trade Notes & Lessons"])
         
         with t1:
-            urls = [u.strip() for u in raw_tr.get("entry_chart_urls", "").split("\n") if u.strip()]
+            raw_e_urls = raw_tr.get("entry_chart_urls", "")
+            urls = [u for u in raw_e_urls.replace(",", " ").split() if u.startswith("http")]
             if urls:
                 for u in urls:
                     st.image(u, use_container_width=True)
@@ -615,7 +621,8 @@ def render_tradebook_tab():
                 st.info("No Entry Charts saved. You can add them anytime via the Edit button.")
                 
         with t2:
-            urls = [u.strip() for u in raw_tr.get("exit_chart_urls", "").split("\n") if u.strip()]
+            raw_x_urls = raw_tr.get("exit_chart_urls", "")
+            urls = [u for u in raw_x_urls.replace(",", " ").split() if u.startswith("http")]
             if urls:
                 for u in urls:
                     st.image(u, use_container_width=True)
@@ -827,7 +834,7 @@ def render_tradebook_tab():
 
             st.plotly_chart(fig_equity, use_container_width=True)
 
-            # 3. Monthly Risk & Execution Tracker Matrix
+            # 3. Monthly Risk & Execution Tracker Matrix (Reverse Sorted with Average Row)
             st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
             
             monthly_groups = list(df_perf.groupby(["Year", "Month"]))
