@@ -6,7 +6,7 @@ from modules.state import init_session_state, save_filter_presets
 # PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(
-    page_title="India Equities Screener & Watchlist Studio",
+    page_title="StockHome",
     page_icon="📈",
     layout="wide",
 )
