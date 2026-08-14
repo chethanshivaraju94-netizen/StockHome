@@ -4,6 +4,7 @@ from datetime import datetime, date
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from tradingview_screener import Query, col
 from modules.data import load_market_monitor_data, fetch_nifty500_close_on_date
@@ -52,8 +53,8 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
 def render_tradebook_tab():
     st.subheader("📓 Tradebook & Institutional Risk Journal")
     st.caption(
-        "Lot-based execution tracking, 1R risk-reward metrics, portfolio"
-        " heat, Nifty 500 Shadow Benchmark Alpha, and Trading Performance Calendar."
+        "Lot-based execution tracking, visual journaling, portfolio"
+        " heat, Shadow Benchmark Alpha, and Performance Calendar."
     )
 
     tb_data = st.session_state.tradebook
@@ -404,6 +405,10 @@ def render_tradebook_tab():
             b_price = st.number_input("Buy Price (₹):", min_value=0.0, value=0.0, step=1.0)
             b_sl = st.number_input("Initial Stop Loss Price (₹):", min_value=0.0, value=0.0, step=1.0)
 
+            st.markdown("---")
+            e_urls = st.text_area("Entry Chart URLs (Paste TradingView image links, one per line)", height=68, placeholder="https://s3.tradingview.com/snapshots/...")
+            t_notes = st.text_area("Trade Notes / Thesis (Optional)", height=68, placeholder="Breakout catalyst, moving averages context, etc.")
+
             outlay = b_shares * b_price
             risk_amount = b_shares * (b_price - b_sl)
             st.caption(f"💡 Total Outlay: **₹{outlay:,.2f}** | Initial Risk (1R): **₹{risk_amount:,.2f}**")
@@ -423,6 +428,9 @@ def render_tradebook_tab():
                         "buy_price": float(b_price),
                         "initial_sl": float(b_sl),
                         "nifty500_buy_close": nifty_close_buy,
+                        "entry_chart_urls": e_urls.strip(),
+                        "exit_chart_urls": "",
+                        "trade_notes": t_notes.strip(),
                     }
                     st.session_state.tradebook["trades"].append(new_trade)
                     save_tradebook(st.session_state.tradebook)
@@ -448,11 +456,16 @@ def render_tradebook_tab():
         sel_label = st.selectbox("Select Active Position Lot to Sell:", options=lot_labels, index=default_idx)
         sel_lot = next(opt[1] for opt in lot_options if opt[0] == sel_label)
         max_sell = sel_lot["shares_bought"] - sel_lot["shares_sold"]
+        existing_notes = sel_lot.get("trade_notes", "")
 
         with st.form("sell_trade_form", clear_on_submit=True):
             s_date = st.date_input("Date Sold:", value=date.today())
             s_shares = st.number_input("Shares Sold:", min_value=1, max_value=max_sell, value=max_sell, step=1)
             s_price = st.number_input("Sell Price (₹):", min_value=0.1, value=sel_lot["buy_price"], step=1.0)
+
+            st.markdown("---")
+            x_urls = st.text_area("Exit Chart URLs (Paste TradingView image links, one per line)", height=68, placeholder="https://s3.tradingview.com/snapshots/...")
+            new_notes = st.text_area("Update Trade Notes / Post-Mortem", value=existing_notes, height=100)
 
             if st.form_submit_button("💾 Execute Exit / Partial Sell", use_container_width=True):
                 date_s_str = s_date.strftime("%Y-%m-%d")
@@ -464,6 +477,8 @@ def render_tradebook_tab():
                     sel_lot["sell_price"] = float(s_price)
                     sel_lot["date_sold"] = date_s_str
                     sel_lot["nifty500_sell_close"] = nifty_close_sell
+                    sel_lot["exit_chart_urls"] = x_urls.strip()
+                    sel_lot["trade_notes"] = new_notes.strip()
                 else:
                     closed_split_lot = {
                         "id": f"TRD_{int(time.time()*1000)}",
@@ -478,8 +493,12 @@ def render_tradebook_tab():
                         "initial_sl": sel_lot["initial_sl"],
                         "nifty500_buy_close": sel_lot.get("nifty500_buy_close", get_nifty500_price_fallback(sel_lot["date_bought"], df_mm_tb)),
                         "nifty500_sell_close": nifty_close_sell,
+                        "entry_chart_urls": sel_lot.get("entry_chart_urls", ""),
+                        "exit_chart_urls": x_urls.strip(),
+                        "trade_notes": new_notes.strip(),
                     }
                     sel_lot["shares_bought"] -= s_shares
+                    sel_lot["trade_notes"] = new_notes.strip()
                     st.session_state.tradebook["trades"].append(closed_split_lot)
 
                 save_tradebook(st.session_state.tradebook)
@@ -518,6 +537,11 @@ def render_tradebook_tab():
                 e_ds_val = (pd.to_datetime(sel_tr.get("date_sold")) if sel_tr.get("date_sold") and sel_tr.get("date_sold") != "N/A" else date.today())
                 e_ds = st.date_input("Date Sold", e_ds_val)
 
+            st.markdown("---")
+            e_urls = st.text_area("Entry Chart URLs", value=sel_tr.get("entry_chart_urls", ""), height=68)
+            x_urls = st.text_area("Exit Chart URLs", value=sel_tr.get("exit_chart_urls", ""), height=68)
+            t_notes = st.text_area("Trade Notes / Post-Mortem", value=sel_tr.get("trade_notes", ""), height=100)
+
             col_upd, col_del = st.columns(2)
             with col_upd:
                 submit_upd = st.form_submit_button("💾 Update Trade", use_container_width=True)
@@ -534,6 +558,9 @@ def render_tradebook_tab():
                 sel_tr["shares_sold"] = e_sh_s
                 sel_tr["sell_price"] = e_sp
                 sel_tr["date_sold"] = e_ds.strftime("%Y-%m-%d") if e_status == "CLOSED" else "N/A"
+                sel_tr["entry_chart_urls"] = e_urls.strip()
+                sel_tr["exit_chart_urls"] = x_urls.strip()
+                sel_tr["trade_notes"] = t_notes.strip()
                 save_tradebook(st.session_state.tradebook)
                 st.success("Trade updated successfully!")
                 st.rerun()
@@ -542,6 +569,65 @@ def render_tradebook_tab():
                 save_tradebook(st.session_state.tradebook)
                 st.success("Trade deleted successfully!")
                 st.rerun()
+
+    @st.dialog("👁️ Review Trade Post-Mortem", width="large")
+    def show_review_modal(t_id):
+        raw_tr = next((t for t in st.session_state.tradebook["trades"] if t.get("id") == t_id), None)
+        proc_tr = next((r for r in processed_trade_rows if r["trade_id"] == t_id), None)
+
+        if not raw_tr or not proc_tr:
+            st.error("Trade data could not be located.")
+            return
+
+        ticker = proc_tr["Ticker"]
+        status = proc_tr["Status"]
+        ret_pct = proc_tr["Abs Return %"]
+        pnl_inr = proc_tr["Gain / Loss (₹)"]
+        r_mult = proc_tr["Realized R"] if "WIN" in status or "LOSS" in status or "SCRATCH" in status or "PARTIAL" in status else "OPEN"
+
+        st.subheader(f"🔍 {ticker} | {status}")
+        
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        c_m1.metric("Return %", f"{ret_pct:+.2f}%")
+        c_m2.metric("P&L (₹)", f"{format_currency_cal(pnl_inr)}")
+        c_m3.metric("R-Multiple", f"{r_mult}")
+        
+        try:
+            d1 = datetime.strptime(proc_tr["Date Bought"], "%Y-%m-%d")
+            d2_str = proc_tr["Date Sold"] if proc_tr["Date Sold"] != "N/A" else date.today().strftime("%Y-%m-%d")
+            d2 = datetime.strptime(d2_str, "%Y-%m-%d")
+            days_held = max(1, (d2 - d1).days)
+        except Exception:
+            days_held = 1
+            
+        c_m4.metric("Days Held", f"{days_held}d")
+        
+        st.markdown("---")
+        
+        t1, t2, t3 = st.tabs(["🟢 Entry Charts", "🔴 Exit Charts", "📝 Trade Notes & Lessons"])
+        
+        with t1:
+            urls = [u.strip() for u in raw_tr.get("entry_chart_urls", "").split("\n") if u.strip()]
+            if urls:
+                for u in urls:
+                    st.image(u, use_container_width=True)
+            else:
+                st.info("No Entry Charts saved. You can add them anytime via the Edit button.")
+                
+        with t2:
+            urls = [u.strip() for u in raw_tr.get("exit_chart_urls", "").split("\n") if u.strip()]
+            if urls:
+                for u in urls:
+                    st.image(u, use_container_width=True)
+            else:
+                st.info("No Exit Charts saved.")
+                
+        with t3:
+            notes = raw_tr.get("trade_notes", "").strip()
+            if notes:
+                st.write(notes)
+            else:
+                st.info("No Trade Notes saved.")
 
     @st.dialog("⚙️ Configure Account Capital", width="small")
     def show_config_modal():
@@ -554,21 +640,24 @@ def render_tradebook_tab():
                 st.rerun()
 
     # --- TOP ACTION BUTTONS ---
-    ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4, ctrl_col5 = st.columns([1.2, 1.2, 1.2, 1.2, 2.0])
+    ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4, ctrl_col5, ctrl_col6 = st.columns([1.1, 1.1, 1.1, 1.1, 1.1, 2.5])
     with ctrl_col1:
-        if st.button("➕ Log New Buy", type="primary", use_container_width=True): show_buy_modal()
+        if st.button("➕ Buy", type="primary", use_container_width=True): show_buy_modal()
     with ctrl_col2:
-        if st.button("➖ Log Exit / Sell", type="secondary", use_container_width=True): show_sell_modal(selected_trade_id)
+        if st.button("➖ Sell", type="secondary", use_container_width=True): show_sell_modal(selected_trade_id)
     with ctrl_col3:
-        if st.button("✏️ Edit / Delete", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): 
+        if st.button("✏️ Edit", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): 
             show_edit_modal(selected_trade_id)
     with ctrl_col4:
-        if st.button("⚙️ Config Capital", type="secondary", use_container_width=True): show_config_modal()
+        if st.button("👁️ Review", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): 
+            show_review_modal(selected_trade_id)
     with ctrl_col5:
-        st.radio("Display Filter:", options=["All Positions", "Open Positions Only", "Closed Trades Only"], horizontal=True, key="tb_display_filter")
+        if st.button("⚙️ Config", type="secondary", use_container_width=True): show_config_modal()
+    with ctrl_col6:
+        st.radio("Filter:", options=["All Positions", "Open Positions Only", "Closed Trades Only"], horizontal=True, key="tb_display_filter", label_visibility="collapsed")
 
     if df_tb_display.empty:
-        st.info("Your Tradebook is empty! Click **'➕ Log New Buy'** above to record your first position.")
+        st.info("Your Tradebook is empty! Click **'➕ Buy'** above to record your first position.")
     else:
         if total_portfolio_nav > 0:
             df_tb_display["Allocation %"] = df_tb_display["Current Value (₹)"].apply(
@@ -620,7 +709,7 @@ def render_tradebook_tab():
         ]
 
         st.subheader(f"📋 Tradebook ({len(df_tb_display)} Rows)")
-        st.caption("💡 Select a row to Edit, Delete, or Log an Exit.")
+        st.caption("💡 Select a row to Edit, Log an Exit, or Review visual charts.")
         
         st.dataframe(
             df_tb_display[tb_table_columns],
@@ -738,7 +827,7 @@ def render_tradebook_tab():
 
             st.plotly_chart(fig_equity, use_container_width=True)
 
-            # 3. Monthly Risk & Execution Tracker Matrix (Reverse Sorted with Average Row)
+            # 3. Monthly Risk & Execution Tracker Matrix
             st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
             
             monthly_groups = list(df_perf.groupby(["Year", "Month"]))
