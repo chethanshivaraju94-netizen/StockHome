@@ -135,8 +135,10 @@ def render_tradebook_tab():
     all_trades = sorted(
         raw_trades,
         key=lambda x: (
-            pd.to_datetime(x.get("date_bought", "1900-01-01")),
+            x.get("date_bought", "1900-01-01"),
+            x.get("ticker", ""),
             1 if x.get("status") == "OPEN" else 0,
+            x.get("date_sold", "1900-01-01")
         ),
         reverse=True
     )
