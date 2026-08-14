@@ -7,16 +7,22 @@ from modules.state import init_session_state, save_filter_presets
 # ==========================================
 st.set_page_config(
     page_title="StockHome",
-    page_icon="📈",
+    page_icon="🏡",
     layout="wide",
 )
+
+# Streamlit v1.35+ native logo placement
+try:
+    st.logo("StockHome Logo.png")
+except AttributeError:
+    pass
 
 st.markdown(TABLE_CUSTOM_CSS, unsafe_allow_html=True)
 
 # Initialize all Session State variables from GitHub Gists
 init_session_state()
 
-st.title("📈 StockHome")
+st.title("🏡 StockHome")
 st.markdown(
     "Professional **CAN SLIM Screener**, **Hierarchical Sector Rotation**, "
     "**Multi-Watchlist Studio**, and **Tradebook Risk Journal**."
@@ -25,6 +31,13 @@ st.markdown(
 # ==========================================
 # SIDEBAR CONTROLS & STRATEGY PRESETS
 # ==========================================
+
+# Display the custom StockHome logo at the very top of the sidebar
+try:
+    st.sidebar.image("StockHome Logo.png", use_container_width=True)
+except Exception:
+    pass  # Failsafe if image path is not resolved
+
 st.sidebar.markdown("### 💾 Saved Filter Presets")
 preset_names = list(st.session_state.filter_presets.keys())
 selected_preset_name = st.sidebar.selectbox(
