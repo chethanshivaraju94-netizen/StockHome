@@ -367,7 +367,6 @@ def render_tradebook_tab():
     # ==========================================
     df_tb_display = pd.DataFrame(processed_trade_rows)
     
-    # Strict secondary sorting for display table to ensure newest dates are top
     if not df_tb_display.empty:
         df_tb_display["Sort_Date"] = pd.to_datetime(df_tb_display["Date Bought"], errors="coerce")
         df_tb_display = df_tb_display.sort_values(by=["Sort_Date", "Ticker"], ascending=[False, True]).drop(columns=["Sort_Date"]).reset_index(drop=True)
@@ -389,8 +388,26 @@ def render_tradebook_tab():
         if idx < len(df_tb_display):
             selected_trade_id = df_tb_display.iloc[idx]["trade_id"]
             
-    # Extract robust list of IDs mirroring exactly what is currently rendered in the UI
     current_trade_ids_list = df_tb_display["trade_id"].tolist() if not df_tb_display.empty else []
+
+    # Smart Fallback Engine for splitting lots
+    def get_trade_property_with_fallback(trade_dict, prop_key):
+        val = trade_dict.get(prop_key, "")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+            
+        if prop_key in ["entry_chart_url", "trade_notes"]:
+            t_ticker = trade_dict.get("ticker")
+            t_date = trade_dict.get("date_bought")
+            t_price = float(trade_dict.get("buy_price", 0.0))
+            
+            for other_tr in st.session_state.tradebook["trades"]:
+                if other_tr.get("ticker") == t_ticker and other_tr.get("date_bought") == t_date:
+                    if abs(float(other_tr.get("buy_price", 0.0)) - t_price) < 0.01:
+                        other_val = other_tr.get(prop_key, "")
+                        if isinstance(other_val, str) and other_val.strip():
+                            return other_val.strip()
+        return ""
 
     # --- DIALOG MODALS ---
     @st.dialog("➕ Log New Position Entry", width="medium")
@@ -504,11 +521,10 @@ def render_tradebook_tab():
                         "nifty500_buy_close": sel_lot.get("nifty500_buy_close", get_nifty500_price_fallback(sel_lot["date_bought"], df_mm_tb)),
                         "nifty500_sell_close": nifty_close_sell,
                         "entry_chart_url": sel_lot.get("entry_chart_url", ""),
-                        "exit_chart_url": exit_chart_url, # Only the closed partial lot gets the exit chart
+                        "exit_chart_url": exit_chart_url,
                         "trade_notes": final_notes,
                     }
                     sel_lot["shares_bought"] -= s_shares
-                    # Original open lot keeps its original notes untouched
                     st.session_state.tradebook["trades"].append(closed_split_lot)
 
                 save_tradebook(st.session_state.tradebook)
@@ -580,38 +596,22 @@ def render_tradebook_tab():
                 st.success("Trade deleted successfully!")
                 st.rerun()
 
-    # Smart Fallback Engine: If a partial sell lot has no notes/entry chart, fetch it from a matching sibling lot
-    def get_trade_property_with_fallback(trade_dict, prop_key):
-        val = trade_dict.get(prop_key, "")
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-            
-        if prop_key in ["entry_chart_url", "trade_notes"]:
-            t_ticker = trade_dict.get("ticker")
-            t_date = trade_dict.get("date_bought")
-            t_price = float(trade_dict.get("buy_price", 0.0))
-            
-            for other_tr in st.session_state.tradebook["trades"]:
-                if other_tr.get("ticker") == t_ticker and other_tr.get("date_bought") == t_date:
-                    if abs(float(other_tr.get("buy_price", 0.0)) - t_price) < 0.01:
-                        other_val = other_tr.get(prop_key, "")
-                        if isinstance(other_val, str) and other_val.strip():
-                            return other_val.strip()
-        return ""
-
     @st.dialog("👁️ Review Trade Post-Mortem", width="large")
     def show_review_modal(initial_t_id, valid_trade_ids):
-        # Manage Session State for Interactive Navigation correctly inside the Dialog
+        # Manage Session State without triggering full page reruns
+        def update_curr_id(new_id):
+            st.session_state["review_modal_current_id"] = new_id
+
         if "review_modal_init_id" not in st.session_state or st.session_state["review_modal_init_id"] != initial_t_id:
             st.session_state["review_modal_init_id"] = initial_t_id
             st.session_state["review_modal_current_id"] = initial_t_id
             
         curr_id = st.session_state["review_modal_current_id"]
         
-        # Security fallback if trade gets deleted or filtered out
         if curr_id not in valid_trade_ids:
             if initial_t_id in valid_trade_ids:
                 curr_id = initial_t_id
+                st.session_state["review_modal_current_id"] = initial_t_id
             else:
                 st.error("Trade data not found in current view.")
                 return
@@ -621,15 +621,11 @@ def render_tradebook_tab():
         # Interactive Navigation Bar
         nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
         with nav_col1:
-            if st.button("⬅️ Previous Trade", disabled=(curr_idx == 0), use_container_width=True):
-                st.session_state["review_modal_current_id"] = valid_trade_ids[curr_idx - 1]
-                st.rerun()
+            st.button("⬅️ Previous Trade", disabled=(curr_idx == 0), on_click=update_curr_id, args=[valid_trade_ids[curr_idx - 1] if curr_idx > 0 else curr_id], use_container_width=True)
         with nav_col2:
             st.markdown(f"<div style='text-align: center; padding-top: 5px; color: #a0aec0;'><b>Reviewing Trade {curr_idx + 1} of {len(valid_trade_ids)}</b></div>", unsafe_allow_html=True)
         with nav_col3:
-            if st.button("Next Trade ➡️", disabled=(curr_idx == len(valid_trade_ids) - 1), use_container_width=True):
-                st.session_state["review_modal_current_id"] = valid_trade_ids[curr_idx + 1]
-                st.rerun()
+            st.button("Next Trade ➡️", disabled=(curr_idx == len(valid_trade_ids) - 1), on_click=update_curr_id, args=[valid_trade_ids[curr_idx + 1] if curr_idx < len(valid_trade_ids) - 1 else curr_id], use_container_width=True)
                 
         st.markdown("---")
         
@@ -693,13 +689,12 @@ def render_tradebook_tab():
             render_multi_charts(safe_exit_url)
             
         with tab3:
-            with st.form("trade_notes_form_" + curr_id):
-                notes = st.text_area("📝 Trade Notes & Lessons Learned:", value=safe_trade_notes, height=250)
-                if st.form_submit_button("💾 Save Notes", use_container_width=True):
-                    sel_tr["trade_notes"] = notes
-                    save_tradebook(st.session_state.tradebook)
-                    st.success("Notes saved successfully!")
-                    st.rerun()
+            # Need a unique key for the text area so it updates when cycling trades
+            notes = st.text_area("📝 Trade Notes & Lessons Learned:", value=safe_trade_notes, height=250, key=f"notes_area_{curr_id}")
+            if st.button("💾 Save Notes", key=f"save_btn_{curr_id}", use_container_width=True):
+                sel_tr["trade_notes"] = notes
+                save_tradebook(st.session_state.tradebook)
+                st.success("Notes saved successfully!")
 
     @st.dialog("⚙️ Configure Account Capital", width="small")
     def show_config_modal():
