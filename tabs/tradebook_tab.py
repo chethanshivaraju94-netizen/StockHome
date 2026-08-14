@@ -1,5 +1,6 @@
 import time
 import calendar
+import re
 from datetime import datetime, date
 import pandas as pd
 import numpy as np
@@ -613,19 +614,29 @@ def render_tradebook_tab():
         
         with t1:
             raw_e_urls = raw_tr.get("entry_chart_urls", "")
-            urls = [u for u in raw_e_urls.replace(",", " ").split() if u.startswith("http")]
+            urls = re.findall(r'(https?://[^\s]+)', raw_e_urls)
             if urls:
-                for u in urls:
-                    st.image(u, use_container_width=True)
+                for idx, u in enumerate(urls):
+                    try:
+                        st.image(u, use_container_width=True)
+                        st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
+                    except Exception:
+                        st.markdown(f"[🔗 View Chart {idx+1}]({u})")
+                    st.markdown("---")
             else:
                 st.info("No Entry Charts saved. You can add them anytime via the Edit button.")
                 
         with t2:
             raw_x_urls = raw_tr.get("exit_chart_urls", "")
-            urls = [u for u in raw_x_urls.replace(",", " ").split() if u.startswith("http")]
+            urls = re.findall(r'(https?://[^\s]+)', raw_x_urls)
             if urls:
-                for u in urls:
-                    st.image(u, use_container_width=True)
+                for idx, u in enumerate(urls):
+                    try:
+                        st.image(u, use_container_width=True)
+                        st.caption(f"[🔗 Open Chart {idx+1} in Browser]({u})")
+                    except Exception:
+                        st.markdown(f"[🔗 View Chart {idx+1}]({u})")
+                    st.markdown("---")
             else:
                 st.info("No Exit Charts saved.")
                 
