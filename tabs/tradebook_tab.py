@@ -367,6 +367,7 @@ def render_tradebook_tab():
     # ==========================================
     df_tb_display = pd.DataFrame(processed_trade_rows)
     
+    # Strict secondary sorting for display table to ensure newest dates are top
     if not df_tb_display.empty:
         df_tb_display["Sort_Date"] = pd.to_datetime(df_tb_display["Date Bought"], errors="coerce")
         df_tb_display = df_tb_display.sort_values(by=["Sort_Date", "Ticker"], ascending=[False, True]).drop(columns=["Sort_Date"]).reset_index(drop=True)
@@ -387,6 +388,9 @@ def render_tradebook_tab():
         idx = selected_rows[0]
         if idx < len(df_tb_display):
             selected_trade_id = df_tb_display.iloc[idx]["trade_id"]
+            
+    # Extract robust list of IDs mirroring exactly what is currently rendered in the UI
+    current_trade_ids_list = df_tb_display["trade_id"].tolist() if not df_tb_display.empty else []
 
     # --- DIALOG MODALS ---
     @st.dialog("➕ Log New Position Entry", width="medium")
@@ -504,6 +508,7 @@ def render_tradebook_tab():
                         "trade_notes": final_notes,
                     }
                     sel_lot["shares_bought"] -= s_shares
+                    # Original open lot keeps its original notes untouched
                     st.session_state.tradebook["trades"].append(closed_split_lot)
 
                 save_tradebook(st.session_state.tradebook)
@@ -575,35 +580,55 @@ def render_tradebook_tab():
                 st.success("Trade deleted successfully!")
                 st.rerun()
 
+    # Smart Fallback Engine: If a partial sell lot has no notes/entry chart, fetch it from a matching sibling lot
+    def get_trade_property_with_fallback(trade_dict, prop_key):
+        val = trade_dict.get(prop_key, "")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+            
+        if prop_key in ["entry_chart_url", "trade_notes"]:
+            t_ticker = trade_dict.get("ticker")
+            t_date = trade_dict.get("date_bought")
+            t_price = float(trade_dict.get("buy_price", 0.0))
+            
+            for other_tr in st.session_state.tradebook["trades"]:
+                if other_tr.get("ticker") == t_ticker and other_tr.get("date_bought") == t_date:
+                    if abs(float(other_tr.get("buy_price", 0.0)) - t_price) < 0.01:
+                        other_val = other_tr.get(prop_key, "")
+                        if isinstance(other_val, str) and other_val.strip():
+                            return other_val.strip()
+        return ""
+
     @st.dialog("👁️ Review Trade Post-Mortem", width="large")
-    def show_review_modal(initial_t_id):
-        # Manage Session State for Interactive Navigation
+    def show_review_modal(initial_t_id, valid_trade_ids):
+        # Manage Session State for Interactive Navigation correctly inside the Dialog
         if "review_modal_init_id" not in st.session_state or st.session_state["review_modal_init_id"] != initial_t_id:
             st.session_state["review_modal_init_id"] = initial_t_id
             st.session_state["review_modal_current_id"] = initial_t_id
             
         curr_id = st.session_state["review_modal_current_id"]
         
-        # Get sorted trade IDs to match table display (newest dates first)
-        trade_ids = [r["trade_id"] for r in processed_trade_rows]
-        
-        if curr_id not in trade_ids:
-            st.error("Trade data not found.")
-            return
+        # Security fallback if trade gets deleted or filtered out
+        if curr_id not in valid_trade_ids:
+            if initial_t_id in valid_trade_ids:
+                curr_id = initial_t_id
+            else:
+                st.error("Trade data not found in current view.")
+                return
             
-        curr_idx = trade_ids.index(curr_id)
+        curr_idx = valid_trade_ids.index(curr_id)
         
         # Interactive Navigation Bar
         nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
         with nav_col1:
             if st.button("⬅️ Previous Trade", disabled=(curr_idx == 0), use_container_width=True):
-                st.session_state["review_modal_current_id"] = trade_ids[curr_idx - 1]
+                st.session_state["review_modal_current_id"] = valid_trade_ids[curr_idx - 1]
                 st.rerun()
         with nav_col2:
-            st.markdown(f"<div style='text-align: center; padding-top: 5px; color: #a0aec0;'><b>Reviewing Trade {curr_idx + 1} of {len(trade_ids)}</b></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; padding-top: 5px; color: #a0aec0;'><b>Reviewing Trade {curr_idx + 1} of {len(valid_trade_ids)}</b></div>", unsafe_allow_html=True)
         with nav_col3:
-            if st.button("Next Trade ➡️", disabled=(curr_idx == len(trade_ids) - 1), use_container_width=True):
-                st.session_state["review_modal_current_id"] = trade_ids[curr_idx + 1]
+            if st.button("Next Trade ➡️", disabled=(curr_idx == len(valid_trade_ids) - 1), use_container_width=True):
+                st.session_state["review_modal_current_id"] = valid_trade_ids[curr_idx + 1]
                 st.rerun()
                 
         st.markdown("---")
@@ -630,6 +655,11 @@ def render_tradebook_tab():
 
         st.markdown("---")
         
+        # Fetch data with smart fallback for partial exits
+        safe_entry_url = get_trade_property_with_fallback(sel_tr, "entry_chart_url")
+        safe_trade_notes = get_trade_property_with_fallback(sel_tr, "trade_notes")
+        safe_exit_url = sel_tr.get("exit_chart_url", "")
+        
         # Tabs for Charts and Notes Layout
         tab1, tab2, tab3 = st.tabs(["🟢 Entry Charts", "🔴 Exit Charts", "📝 Trade Notes & Lessons"])
         
@@ -645,19 +675,26 @@ def render_tradebook_tab():
                 return
                 
             for i, url in enumerate(urls):
-                st.image(url, use_container_width=True)
-                st.markdown(f"🔗 <a href='{url}' target='_blank'>Open Chart {i+1} in Browser</a>", unsafe_allow_html=True)
+                st.markdown(
+                    f'''
+                    <div style="margin-bottom: 10px; border: 1px solid #475569; border-radius: 8px; overflow: hidden; background: #1e293b;">
+                        <img src="{url}" style="width: 100%; display: block;">
+                    </div>
+                    ''', 
+                    unsafe_allow_html=True
+                )
+                st.markdown(f"**🔗 [Open Chart {i+1} in Browser]({url})**")
                 st.markdown("<br>", unsafe_allow_html=True)
         
         with tab1:
-            render_multi_charts(sel_tr.get("entry_chart_url", ""))
+            render_multi_charts(safe_entry_url)
             
         with tab2:
-            render_multi_charts(sel_tr.get("exit_chart_url", ""))
+            render_multi_charts(safe_exit_url)
             
         with tab3:
             with st.form("trade_notes_form_" + curr_id):
-                notes = st.text_area("📝 Trade Notes & Lessons Learned:", value=sel_tr.get("trade_notes", ""), height=250)
+                notes = st.text_area("📝 Trade Notes & Lessons Learned:", value=safe_trade_notes, height=250)
                 if st.form_submit_button("💾 Save Notes", use_container_width=True):
                     sel_tr["trade_notes"] = notes
                     save_tradebook(st.session_state.tradebook)
@@ -683,7 +720,8 @@ def render_tradebook_tab():
     with ctrl_col3:
         if st.button("✏️ Edit", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): show_edit_modal(selected_trade_id)
     with ctrl_col4:
-        if st.button("👁️ Review", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): show_review_modal(selected_trade_id)
+        if st.button("👁️ Review", type="secondary", use_container_width=True, disabled=(selected_trade_id is None)): 
+            show_review_modal(selected_trade_id, current_trade_ids_list)
     with ctrl_col5:
         if st.button("⚙️ Config", type="secondary", use_container_width=True): show_config_modal()
     with ctrl_col6:
