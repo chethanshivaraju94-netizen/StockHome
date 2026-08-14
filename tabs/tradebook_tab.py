@@ -1,13 +1,7 @@
 import time
 import calendar
 import re
-import json
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -55,70 +49,6 @@ def get_nifty500_price_fallback(date_str, df_mm_tb):
         pass
     
     return 22438.0
-
-
-def send_tradebook_backup_email(df_export, tb_dict, starting_cap, nav, realized_pnl, win_rate):
-    email_addr = st.secrets.get("EMAIL_ADDRESS", "")
-    email_pass = st.secrets.get("EMAIL_APP_PASSWORD", "")
-    
-    if not email_addr or not email_pass:
-        return False, "Missing EMAIL_ADDRESS or EMAIL_APP_PASSWORD in Secrets."
-
-    try:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        subject = f"🛡️ Tradebook Database Backup - {now_str}"
-        
-        msg = MIMEMultipart()
-        msg["From"] = email_addr
-        msg["To"] = email_addr
-        msg["Subject"] = subject
-
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; color: #1e293b; line-height: 1.6;">
-            <h2 style="color: #0f172a;">📓 Tradebook & Institutional Journal Backup</h2>
-            <p>Here is your weekly automated backup of your complete trading portfolio database.</p>
-            <table style="border-collapse: collapse; width: 100%; max-width: 500px; margin: 15px 0;">
-                <tr style="background: #f1f5f9;"><td style="padding: 8px; border: 1px solid #cbd5e1;"><b>Starting Capital</b></td><td style="padding: 8px; border: 1px solid #cbd5e1;">₹{starting_cap:,.2f}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #cbd5e1;"><b>Portfolio NAV</b></td><td style="padding: 8px; border: 1px solid #cbd5e1;">₹{nav:,.2f}</td></tr>
-                <tr style="background: #f1f5f9;"><td style="padding: 8px; border: 1px solid #cbd5e1;"><b>Realized P&L</b></td><td style="padding: 8px; border: 1px solid #cbd5e1;">₹{realized_pnl:,.2f}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #cbd5e1;"><b>Win Rate</b></td><td style="padding: 8px; border: 1px solid #cbd5e1;">{win_rate:.1f}%</td></tr>
-                <tr style="background: #f1f5f9;"><td style="padding: 8px; border: 1px solid #cbd5e1;"><b>Total Trades Logged</b></td><td style="padding: 8px; border: 1px solid #cbd5e1;">{len(df_export)} lots</td></tr>
-            </table>
-            <p><b>Attachments:</b></p>
-            <ul>
-                <li><code>tradebook_backup.json</code> — Complete raw database file (with all notes & chart links).</li>
-                <li><code>tradebook_export.csv</code> — Excel-ready tabular export.</li>
-            </ul>
-        </body>
-        </html>
-        """
-        msg.attach(MIMEText(html_body, "html"))
-
-        # Attach CSV
-        csv_bytes = df_export.to_csv(index=False, sep=";").encode("utf-8")
-        part_csv = MIMEBase("application", "octet-stream")
-        part_csv.set_payload(csv_bytes)
-        encoders.encode_base64(part_csv)
-        part_csv.add_header("Content-Disposition", f"attachment; filename=tradebook_{date.today().strftime('%Y%m%d')}.csv")
-        msg.attach(part_csv)
-
-        # Attach JSON
-        json_bytes = json.dumps(tb_dict, indent=2).encode("utf-8")
-        part_json = MIMEBase("application", "octet-stream")
-        part_json.set_payload(json_bytes)
-        encoders.encode_base64(part_json)
-        part_json.add_header("Content-Disposition", f"attachment; filename=tradebook_backup_{date.today().strftime('%Y%m%d')}.json")
-        msg.attach(part_json)
-
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(email_addr, email_pass)
-        server.send_message(msg)
-        server.quit()
-        return True, "Backup email delivered successfully!"
-    except Exception as e:
-        return False, str(e)
 
 
 def render_tradebook_tab():
@@ -438,6 +368,7 @@ def render_tradebook_tab():
     # DATA PROCESSING & TABLE SELECTION LOGIC
     # ==========================================
     df_tb_display = pd.DataFrame(processed_trade_rows)
+    
     tb_filter = st.session_state.get("tb_display_filter", "All Positions")
 
     if not df_tb_display.empty:
@@ -456,29 +387,6 @@ def render_tradebook_tab():
             selected_trade_id = df_tb_display.iloc[idx]["trade_id"]
             
     current_trade_ids_list = df_tb_display["trade_id"].tolist() if not df_tb_display.empty else []
-
-    # Calculate overall win rate for email summary
-    closed_for_winrate = [t for t in processed_trade_rows if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", ""))]
-    total_closed_cnt = len(closed_for_winrate)
-    win_cnt = len([t for t in closed_for_winrate if t["Total Ret (₹)"] > 0])
-    overall_wr = (win_cnt / total_closed_cnt * 100) if total_closed_cnt > 0 else 0.0
-
-    # =========================================================================
-    # 🕒 AUTOMATIC FRIDAY MARKET-CLOSE BACKUP TRIGGER
-    # =========================================================================
-    # IST is UTC+5:30
-    ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-    current_iso_week = f"{ist_now.year}-W{ist_now.isocalendar()[1]}"
-    last_sent_week = tb_data.get("config", {}).get("last_backup_week", "")
-
-    # Trigger on Friday (weekday 4) after 15:30 IST
-    if ist_now.weekday() == 4 and (ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute >= 30)):
-        if last_sent_week != current_iso_week and not df_tb_display.empty:
-            ok, _ = send_tradebook_backup_email(df_tb_display, tb_data, starting_cap, total_portfolio_nav, realized_pnl_total, overall_wr)
-            if ok:
-                st.session_state.tradebook["config"]["last_backup_week"] = current_iso_week
-                save_tradebook(st.session_state.tradebook)
-                st.toast("📧 Automatic Friday Tradebook Backup delivered to your email!", icon="🛡️")
 
     # Smart Fallback Engine for splitting lots
     def get_trade_property_with_fallback(trade_dict, prop_key):
@@ -707,6 +615,7 @@ def render_tradebook_tab():
             
         curr_idx = valid_trade_ids.index(curr_id)
         
+        # Interactive Navigation Bar
         nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
         with nav_col1:
             st.button("⬅️ Previous Trade", disabled=(curr_idx == 0), on_click=update_curr_id, args=[valid_trade_ids[curr_idx - 1] if curr_idx > 0 else curr_id], use_container_width=True)
@@ -717,6 +626,7 @@ def render_tradebook_tab():
                 
         st.markdown("---")
         
+        # Fetch Target Trade Data
         sel_tr = next((tr for tr in st.session_state.tradebook["trades"] if tr.get("id") == curr_id), None)
         p_row = next((r for r in processed_trade_rows if r["trade_id"] == curr_id), None)
         
@@ -742,6 +652,7 @@ def render_tradebook_tab():
         safe_trade_notes = get_trade_property_with_fallback(sel_tr, "trade_notes")
         safe_exit_url = sel_tr.get("exit_chart_url", "")
         
+        # Tabs for Charts and Notes Layout
         tab1, tab2, tab3 = st.tabs(["🟢 Entry Charts", "🔴 Exit Charts", "📝 Trade Notes & Lessons"])
         
         def render_multi_charts(url_string):
@@ -779,7 +690,7 @@ def render_tradebook_tab():
                 save_tradebook(st.session_state.tradebook)
                 st.success("Notes saved successfully!")
 
-    @st.dialog("⚙️ Configure Account & Backups", width="small")
+    @st.dialog("⚙️ Configure Account Capital", width="small")
     def show_config_modal():
         with st.form("config_capital_form"):
             cap = st.number_input("Starting Portfolio Capital (₹):", min_value=10000.0, value=starting_cap, step=25000.0)
@@ -788,17 +699,6 @@ def render_tradebook_tab():
                 save_tradebook(st.session_state.tradebook)
                 st.success("Config updated!")
                 st.rerun()
-
-        st.markdown("---")
-        st.markdown("**🛡️ Cloud Database Backup**")
-        st.caption("Auto-dispatches every Friday after 15:30 IST to your email. Click below to force an immediate backup.")
-        if st.button("📧 Email Full Database Backup Now", use_container_width=True, type="secondary"):
-            with st.spinner("Dispatching encrypted database JSON & CSV attachments..."):
-                ok, msg = send_tradebook_backup_email(df_tb_display, tb_data, starting_cap, total_portfolio_nav, realized_pnl_total, overall_wr)
-                if ok:
-                    st.success("✅ Complete database backup sent to your email!")
-                else:
-                    st.error(f"❌ Backup email failed: {msg}")
 
     # --- TOP ACTION BUTTONS ---
     ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4, ctrl_col5, ctrl_col6 = st.columns([1.1, 1.1, 1.1, 1.1, 1.1, 2.2])
