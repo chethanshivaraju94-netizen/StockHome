@@ -18,8 +18,10 @@ def render_screener_tab():
     sector_choice = st.session_state.get("f_sectors", [])
     industry_choice = st.session_state.get("f_industries", [])
     index_choice = st.session_state.get("f_indices", [])
+    en_mcap = st.session_state.get("f_en_mcap", True)
     min_mcap_cr = st.session_state.get("f_min_mcap", 1000)
     vol_period_days = st.session_state.get("f_vol_period", 60)
+    en_vol = st.session_state.get("f_en_vol", True)
     min_vol_cr = st.session_state.get("f_min_vol", 5.0)
     en_ipo = st.session_state.get("f_en_ipo", False)
     ipo_filter_choice = st.session_state.get("f_ipo", "All Stocks (No IPO Filter)")
@@ -69,9 +71,11 @@ def render_screener_tab():
     ma_cols_to_fetch = list(set([m["col_name"] for m in ma_filters]))
     tv_vol_col = f"average_volume_{vol_period_days}d_calc"
 
+    effective_min_mcap = min_mcap_cr if en_mcap else 0
+
     with st.spinner("⚡ Scanning Indian Equities & Applying Active Filters..."):
         results_df = fetch_screener_data(
-            exchange_choice, min_mcap_cr, vol_period_days, ma_cols_to_fetch, max_results
+            exchange_choice, effective_min_mcap, vol_period_days, ma_cols_to_fetch, max_results
         )
         nse_bands_map = get_nse_circuit_bands()
 
@@ -183,7 +187,8 @@ def render_screener_tab():
 
         if tv_vol_col in df.columns:
             df["val_traded_inr"] = df["close"] * df[tv_vol_col]
-            df = df[df["val_traded_inr"] >= (min_vol_cr * 10_000_000)]
+            if en_vol:
+                df = df[df["val_traded_inr"] >= (min_vol_cr * 10_000_000)]
 
         if "price_52_week_low" in df.columns:
             pct_above_low = ((df["close"] - df["price_52_week_low"]) / df["price_52_week_low"]) * 100
@@ -406,7 +411,7 @@ def render_screener_tab():
             sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
             for p_lbl in active_perf_labels:
                 if p_lbl not in sort_options:
-                    sort_options.insert(1, p_lbl) # Put performance labels near the top
+                    sort_options.insert(1, p_lbl)
 
             st.write("") 
             col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns([1.6, 0.9, 1.0, 1.0, 1.8])
