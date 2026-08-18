@@ -240,16 +240,69 @@ def render_screener_tab():
             total_passed = len(df)
             rc = st.session_state.reset_counter
 
+            # --- ROBUST SESSION STATE EXTRACTION TO FIX HIDDEN TAB BUG ---
+            # 1. Prepare Sector Data
+            sec_counts = df["Sector"].value_counts().reset_index()
+            sec_counts.columns = ["Sector", "Stocks Passed"]
+            sec_counts["% Share"] = ((sec_counts["Stocks Passed"] / total_passed) * 100).round(1)
+            sec_counts["% of Sector Total"] = sec_counts.apply(
+                lambda r: round((r["Stocks Passed"] / total_sector_counts.get(r["Sector"], 1)) * 100, 1), axis=1
+            )
+            
+            # 2. Extract Sector Selection Safely
+            active_sectors = []
+            sec_table_state = st.session_state.get(f"sec_table_{rc}")
+            if sec_table_state and isinstance(sec_table_state, dict):
+                rows = sec_table_state.get("selection", {}).get("rows", [])
+                if rows:
+                    active_sectors = sec_counts.iloc[rows]["Sector"].tolist()
+            
+            if not active_sectors:
+                sec_chart_state = st.session_state.get(f"sec_chart_{rc}")
+                if sec_chart_state and isinstance(sec_chart_state, dict):
+                    pts = sec_chart_state.get("selection", {}).get("points", [])
+                    if pts:
+                        extracted = [p.get("label", "") for p in pts if "label" in p]
+                        active_sectors = [s for s in extracted if s in sec_counts["Sector"].values]
+
+            # 3. Prepare Industry Data
+            if active_sectors:
+                df_ind_source = df[df["Sector"].isin(active_sectors)]
+                ind_total_passed = len(df_ind_source)
+            else:
+                df_ind_source = df
+                ind_total_passed = total_passed
+                
+            ind_counts = df_ind_source["Industry"].value_counts().reset_index()
+            ind_counts.columns = ["Basic Industry", "Stocks Passed"]
+            ind_counts["% Share"] = ((ind_counts["Stocks Passed"] / max(ind_total_passed, 1)) * 100).round(1)
+            ind_counts["% of Industry Total"] = ind_counts.apply(
+                lambda r: round((r["Stocks Passed"] / total_industry_counts.get(r["Basic Industry"], 1)) * 100, 1), axis=1
+            )
+
+            sec_hash = "_".join(sorted(active_sectors)) if active_sectors else "all"
+
+            # 4. Extract Industry Selection Safely
+            active_industries = []
+            ind_table_state = st.session_state.get(f"ind_table_{rc}_{sec_hash}")
+            if ind_table_state and isinstance(ind_table_state, dict):
+                rows = ind_table_state.get("selection", {}).get("rows", [])
+                if rows:
+                    active_industries = ind_counts.iloc[rows]["Basic Industry"].tolist()
+            
+            if not active_industries:
+                ind_chart_state = st.session_state.get(f"ind_chart_{rc}_{sec_hash}")
+                if ind_chart_state and isinstance(ind_chart_state, dict):
+                    pts = ind_chart_state.get("selection", {}).get("points", [])
+                    if pts:
+                        extracted = [p.get("label", "") for p in pts if "label" in p]
+                        active_industries = [s for s in extracted if s in ind_counts["Basic Industry"].values]
+
+            # --- Render Summary Tabs ---
             st.subheader("📊 Scan Summary & Market Rotation")
             tab_sector_sum, tab_industry_sum = st.tabs(["🛠️ Sector Summary", "🏢 Basic Industry Summary"])
 
             with tab_sector_sum:
-                sec_counts = df["Sector"].value_counts().reset_index()
-                sec_counts.columns = ["Sector", "Stocks Passed"]
-                sec_counts["% Share"] = ((sec_counts["Stocks Passed"] / total_passed) * 100).round(1)
-                sec_counts["% of Sector Total"] = sec_counts.apply(
-                    lambda r: round((r["Stocks Passed"] / total_sector_counts.get(r["Sector"], 1)) * 100, 1), axis=1
-                )
                 c_chart1, c_table1 = st.columns([1.1, 1.3])
                 with c_chart1:
                     fig_sec = px.pie(sec_counts, names="Sector", values="Stocks Passed", hole=0.55)
@@ -258,31 +311,17 @@ def render_screener_tab():
                         annotations=[dict(text=f"<b>Total Stocks:<br>{total_passed}</b>", x=0.5, y=0.5, font_size=16, showarrow=False)],
                         showlegend=False, margin=dict(t=20, b=10, l=20, r=20), height=360,
                     )
-                    chart_ev_sec = st.plotly_chart(fig_sec, use_container_width=True, on_select="rerun", selection_mode="points", key=f"sec_chart_{rc}")
+                    st.plotly_chart(fig_sec, use_container_width=True, on_select="rerun", selection_mode="points", key=f"sec_chart_{rc}")
                 with c_table1:
-                    table_ev_sec = st.dataframe(
+                    st.dataframe(
                         sec_counts, use_container_width=True, hide_index=True, height=360, on_select="rerun",
                         selection_mode="multi-row", column_config=get_left_aligned_column_config(sec_counts.columns), key=f"sec_table_{rc}"
                     )
-                sel_sec_chart = parse_chart_selection_multi(chart_ev_sec)
-                sel_sec_table = parse_table_selection_multi(table_ev_sec, sec_counts, "Sector")
-                active_sectors = sel_sec_table if sel_sec_table else sel_sec_chart
 
             with tab_industry_sum:
                 if active_sectors:
-                    df_ind_source = df[df["Sector"].isin(active_sectors)]
-                    ind_total_passed = len(df_ind_source)
                     st.info(f"🏢 **Hierarchical View:** Showing Basic Industries inside **{', '.join(active_sectors)}** ({ind_total_passed} Stocks)")
-                else:
-                    df_ind_source = df
-                    ind_total_passed = total_passed
-                ind_counts = df_ind_source["Industry"].value_counts().reset_index()
-                ind_counts.columns = ["Basic Industry", "Stocks Passed"]
-                ind_counts["% Share"] = ((ind_counts["Stocks Passed"] / max(ind_total_passed, 1)) * 100).round(1)
-                ind_counts["% of Industry Total"] = ind_counts.apply(
-                    lambda r: round((r["Stocks Passed"] / total_industry_counts.get(r["Basic Industry"], 1)) * 100, 1), axis=1
-                )
-                sec_hash = "_".join(sorted(active_sectors)) if active_sectors else "all"
+                
                 c_chart2, c_table2 = st.columns([1.1, 1.3])
                 with c_chart2:
                     fig_ind = px.pie(ind_counts, names="Basic Industry", values="Stocks Passed", hole=0.55)
@@ -291,15 +330,12 @@ def render_screener_tab():
                         annotations=[dict(text=f"<b>Total Stocks:<br>{ind_total_passed}</b>", x=0.5, y=0.5, font_size=16, showarrow=False)],
                         showlegend=False, margin=dict(t=20, b=10, l=20, r=20), height=360,
                     )
-                    chart_ev_ind = st.plotly_chart(fig_ind, use_container_width=True, on_select="rerun", selection_mode="points", key=f"ind_chart_{rc}_{sec_hash}")
+                    st.plotly_chart(fig_ind, use_container_width=True, on_select="rerun", selection_mode="points", key=f"ind_chart_{rc}_{sec_hash}")
                 with c_table2:
-                    table_ev_ind = st.dataframe(
+                    st.dataframe(
                         ind_counts, use_container_width=True, hide_index=True, height=360, on_select="rerun",
                         selection_mode="multi-row", column_config=get_left_aligned_column_config(ind_counts.columns), key=f"ind_table_{rc}_{sec_hash}"
                     )
-                sel_ind_chart = parse_chart_selection_multi(chart_ev_ind)
-                sel_ind_table = parse_table_selection_multi(table_ev_ind, ind_counts, "Basic Industry")
-                active_industries = sel_ind_table if sel_ind_table else sel_ind_chart
 
             st.session_state.active_scan_summary = {
                 "total_passed": total_passed,
