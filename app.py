@@ -56,8 +56,10 @@ with col_load:
             st.session_state["f_sectors"] = p.get("sectors", [])
             st.session_state["f_industries"] = p.get("industries", [])
             st.session_state["f_indices"] = p.get("indices", [])
+            st.session_state["f_en_mcap"] = p.get("en_mcap", True)
             st.session_state["f_min_mcap"] = p.get("min_mcap_cr", 1000)
             st.session_state["f_vol_period"] = p.get("vol_period_days", 60)
+            st.session_state["f_en_vol"] = p.get("en_vol", True)
             st.session_state["f_min_vol"] = p.get("min_vol_cr", 5.0)
             st.session_state["f_en_ipo"] = p.get("en_ipo", False)
             st.session_state["f_ipo"] = p.get("ipo_filter", "All Stocks (No IPO Filter)")
@@ -104,8 +106,10 @@ with col_update:
                 "sectors": st.session_state.get("f_sectors", []),
                 "industries": st.session_state.get("f_industries", []),
                 "indices": st.session_state.get("f_indices", []),
+                "en_mcap": st.session_state.get("f_en_mcap", True),
                 "min_mcap_cr": st.session_state.get("f_min_mcap", 1000),
                 "vol_period_days": st.session_state.get("f_vol_period", 60),
+                "en_vol": st.session_state.get("f_en_vol", True),
                 "min_vol_cr": st.session_state.get("f_min_vol", 5.0),
                 "en_ipo": st.session_state.get("f_en_ipo", False),
                 "ipo_filter": st.session_state.get("f_ipo", "All Stocks (No IPO Filter)"),
@@ -163,8 +167,10 @@ with st.sidebar.expander("➕ Save Current Filters as New Preset"):
                     "sectors": st.session_state.get("f_sectors", []),
                     "industries": st.session_state.get("f_industries", []),
                     "indices": st.session_state.get("f_indices", []),
+                    "en_mcap": st.session_state.get("f_en_mcap", True),
                     "min_mcap_cr": st.session_state.get("f_min_mcap", 1000),
                     "vol_period_days": st.session_state.get("f_vol_period", 60),
+                    "en_vol": st.session_state.get("f_en_vol", True),
                     "min_vol_cr": st.session_state.get("f_min_vol", 5.0),
                     "en_ipo": st.session_state.get("f_en_ipo", False),
                     "ipo_filter": st.session_state.get("f_ipo", "All Stocks (No IPO Filter)"),
@@ -236,9 +242,14 @@ st.sidebar.multiselect("Index Membership (45+ Available):", options=EXHAUSTIVE_I
 # ----------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.header("2. Fundamental, Liquidity & IPO Date")
-st.sidebar.number_input("Min Market Cap (₹ Crores):", min_value=0, value=st.session_state.get("f_min_mcap", 1000), step=100, key="f_min_mcap")
+
+en_mcap = st.sidebar.checkbox("Filter by Min Market Cap", value=st.session_state.get("f_en_mcap", True), key="f_en_mcap")
+st.sidebar.number_input("Min Market Cap (₹ Crores):", min_value=0, value=st.session_state.get("f_min_mcap", 1000), step=100, key="f_min_mcap", disabled=not en_mcap)
+
 st.sidebar.selectbox("Average Volume Period:", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period", 60)), format_func=lambda x: f"{x} Days", key="f_vol_period")
-st.sidebar.number_input(f"Min Avg Rupee Volume (₹ Cr):", min_value=0.0, value=st.session_state.get("f_min_vol", 5.0), step=0.5, key="f_min_vol")
+
+en_vol = st.sidebar.checkbox("Filter by Min Avg Rupee Volume", value=st.session_state.get("f_en_vol", True), key="f_en_vol")
+st.sidebar.number_input(f"Min Avg Rupee Volume (₹ Cr):", min_value=0.0, value=st.session_state.get("f_min_vol", 5.0), step=0.5, key="f_min_vol", disabled=not en_vol)
 
 en_ipo = st.sidebar.checkbox("Filter by IPO Listing Age", value=st.session_state.get("f_en_ipo", False), key="f_en_ipo")
 ipo_filter_options = [
