@@ -403,12 +403,13 @@ def render_screener_tab():
                     key=f"scan_filter_exc_{rc}_{sc}"
                 )
 
-            sort_options = ["Original Scan Order", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Perf % 1W", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
+            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
             for p_lbl in active_perf_labels:
                 if p_lbl not in sort_options:
-                    sort_options.append(p_lbl)
+                    sort_options.insert(1, p_lbl) # Put performance labels near the top
 
-            col_s1, col_s2, col_s3, col_s4 = st.columns([2.0, 1.2, 1.2, 1.2])
+            st.write("") 
+            col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns([1.6, 0.9, 1.0, 1.0, 1.8])
             with col_s1:
                 sort_by = st.selectbox("🔀 Sort Results By:", options=sort_options, index=0, key=f"scan_sort_{rc}_{sc}")
             with col_s2:
@@ -426,13 +427,21 @@ def render_screener_tab():
                 )
             with col_s4:
                 top_pct_val = st.number_input(
-                    "Top % of List:", 
+                    "Top % Limit:", 
                     min_value=0.1, 
                     max_value=100.0, 
                     value=2.0, 
                     step=0.5, 
                     disabled=not en_top_pct, 
                     key=f"scan_top_pct_val_{rc}_{sc}"
+                )
+            with col_s5:
+                cross_metric_exc = st.multiselect(
+                    "🚫 Exclude Top % from:",
+                    options=active_perf_labels,
+                    disabled=not en_top_pct,
+                    key=f"scan_cross_metric_exc_{rc}_{sc}",
+                    help="Automatically calculates the Top X% of the selected metrics and removes those stocks from your current view to prevent overlap."
                 )
 
             # Apply Watchlist Cross-Filter (INCLUDE)
@@ -451,18 +460,33 @@ def render_screener_tab():
                         exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
                 df_display = df_display[~df_display["name"].isin(exclude_symbols)]
 
-            # Apply Python-Level Sorting
+            total_before_slice = len(df_display)
+
+            # Apply Cross-Metric Momentum Exclusions (Background calculation)
+            if en_top_pct and total_before_slice > 0 and cross_metric_exc:
+                num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
+                cross_exclude_symbols = set()
+                
+                for metric in cross_metric_exc:
+                    if metric in df_display.columns:
+                        temp_top = df_display.sort_values(by=metric, ascending=False, na_position="last").head(num_to_keep)
+                        cross_exclude_symbols.update(temp_top['name'].tolist())
+                
+                df_display = df_display[~df_display['name'].isin(cross_exclude_symbols)]
+                if len(cross_exclude_symbols) > 0:
+                    st.info(f"🚀 **Momentum Overlap Excluder:** Automatically removed {len(cross_exclude_symbols)} stocks that already appeared in the Top {top_pct_val}% of your selected exclusion metrics.")
+
+            # Apply Primary Sorting
             if sort_by != "Original Scan Order" and sort_by in df_display.columns:
                 temp_col = "_temp_sort_col"
                 df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
                 df_display = df_display.sort_values(by=temp_col, ascending=sort_asc, na_position="last").drop(columns=[temp_col])
 
-            # Apply Top % Slicing
-            total_before_slice = len(df_display)
+            # Apply Top % Slicing to the remaining pool
             if en_top_pct and total_before_slice > 0:
                 num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
                 df_display = df_display.head(num_to_keep)
-                results_heading = f"📋 Scan Results ({len(df_display)} of {total_before_slice} Stocks Shown — Top {top_pct_val}%)"
+                results_heading = f"📋 Scan Results ({len(df_display)} Fresh Stocks Shown — Top {top_pct_val}% Quota)"
             else:
                 results_heading = f"📋 Scan Results ({len(df_display)} Stocks Found)"
 
