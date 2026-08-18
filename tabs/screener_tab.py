@@ -318,7 +318,6 @@ def render_screener_tab():
                         st.session_state.reset_counter += 1
                         st.rerun()
 
-            df_display["S.No._num"] = range(1, len(df_display) + 1)
             df_display["Market Cap (₹ Cr)"] = (df_display["market_cap_basic"] / 10_000_000).round(2)
             vol_display_label = f"{vol_period_days}D Close×AvgVol (₹ Cr)"
             df_display[vol_display_label] = (df_display["val_traded_inr"] / 10_000_000).round(2)
@@ -352,7 +351,6 @@ def render_screener_tab():
                         wl_dot_map[bare_s] = wl_dot_map.get(bare_s, "") + dot
 
             df_display["WL_Dots"] = df_display["name"].str.upper().map(wl_dot_map).fillna("")
-            df_display["S.No."] = df_display.apply(lambda r: f"{r['S.No._num']} {r['WL_Dots']}".strip() if r["WL_Dots"] else str(r["S.No._num"]), axis=1)
 
             df_display["_in_band"] = df_display["name"].str.upper().map(nse_bands_map)
             cond1 = df_display["_in_band"].isin(["2", "5", "10"])
@@ -390,51 +388,60 @@ def render_screener_tab():
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
 
-            # --- 1. RENDER FILTER DROPDOWN & TOP % SLICER DIRECTLY ABOVE TABLE ---
-            col_wl_filter, col_top_slicer = st.columns([2.5, 1.5])
-            with col_wl_filter:
-                cross_filter_wls = st.multiselect(
-                    "🔍 Filter: Show only stocks also present in:", 
-                    options=wl_names, 
-                    key=f"scan_filter_{rc}_{sc}"
+            # --- UNIFIED CONTROL BAR DIRECTLY ABOVE TABLE ---
+            cross_filter_wls = st.multiselect(
+                "🔍 Filter: Show only stocks also present in:", 
+                options=wl_names, 
+                key=f"scan_filter_{rc}_{sc}"
+            )
+
+            sort_options = ["Original Scan Order", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Perf % 1W", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
+            # Ensure all available active perfs are in sort options
+            for p_lbl in active_perf_labels:
+                if p_lbl not in sort_options:
+                    sort_options.append(p_lbl)
+
+            col_s1, col_s2, col_s3, col_s4 = st.columns([2.0, 1.2, 1.2, 1.2])
+            with col_s1:
+                sort_by = st.selectbox("🔀 Sort Results By:", options=sort_options, index=0, key=f"scan_sort_{rc}_{sc}")
+            with col_s2:
+                st.write("")
+                st.write("")
+                sort_asc = st.checkbox("Ascending Order", value=False, key=f"scan_asc_{rc}_{sc}")
+            with col_s3:
+                st.write("")
+                st.write("")
+                en_top_pct = st.checkbox(
+                    "🎯 Top % Only", 
+                    value=False, 
+                    key=f"scan_top_pct_en_{rc}_{sc}",
+                    help="Filter down to only the top X% of stocks based on your chosen sort."
                 )
-            with col_top_slicer:
-                c_tp_chk, c_tp_val = st.columns([1.0, 1.2])
-                with c_tp_chk:
-                    st.write("")
-                    st.write("")
-                    en_top_pct = st.checkbox(
-                        "🎯 Top % Only", 
-                        value=st.session_state.get(f"scan_top_pct_en_{rc}_{sc}", False), 
-                        key=f"scan_top_pct_en_{rc}_{sc}",
-                        help="Filter down to only the highest X% of stocks based on current active sort."
-                    )
-                with c_tp_val:
-                    top_pct_val = st.number_input(
-                        "Top % of List:", 
-                        min_value=0.1, 
-                        max_value=100.0, 
-                        value=float(st.session_state.get(f"scan_top_pct_val_{rc}_{sc}", 2.0)), 
-                        step=0.5, 
-                        disabled=not en_top_pct, 
-                        key=f"scan_top_pct_val_{rc}_{sc}"
-                    )
+            with col_s4:
+                top_pct_val = st.number_input(
+                    "Top % of List:", 
+                    min_value=0.1, 
+                    max_value=100.0, 
+                    value=2.0, 
+                    step=0.5, 
+                    disabled=not en_top_pct, 
+                    key=f"scan_top_pct_val_{rc}_{sc}"
+                )
 
-            # --- 2. APPLY FILTER, SORTING & TOP % SLICING ---
-            sort_by = st.session_state.get(f"scan_sort_{rc}_{sc}", "Original Scan Order")
-            sort_asc = st.session_state.get(f"scan_asc_{rc}_{sc}", False)
-
+            # Apply Watchlist Cross-Filter
             if cross_filter_wls:
                 valid_symbols = set()
                 for f_wl in cross_filter_wls:
                     valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
                 df_display = df_display[df_display["name"].isin(valid_symbols)]
 
-            if sort_by != "Original Scan Order":
+            # Apply Python-Level Sorting
+            if sort_by != "Original Scan Order" and sort_by in df_display.columns:
                 temp_col = "_temp_sort_col"
                 df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
-                df_display = df_display.sort_values(by=temp_col, ascending=sort_asc).drop(columns=[temp_col])
+                df_display = df_display.sort_values(by=temp_col, ascending=sort_asc, na_position="last").drop(columns=[temp_col])
 
+            # Apply Top % Slicing
             total_before_slice = len(df_display)
             if en_top_pct and total_before_slice > 0:
                 num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
@@ -442,6 +449,10 @@ def render_screener_tab():
                 results_heading = f"📋 Scan Results ({len(df_display)} of {total_before_slice} Stocks Shown — Top {top_pct_val}%)"
             else:
                 results_heading = f"📋 Scan Results ({len(df_display)} Stocks Found)"
+
+            # Assign sequential S.No. post-sorting & slicing
+            df_display["S.No._num"] = range(1, len(df_display) + 1)
+            df_display["S.No."] = df_display.apply(lambda r: f"{r['S.No._num']} {r['WL_Dots']}".strip() if r["WL_Dots"] else str(r["S.No._num"]), axis=1)
 
             st.subheader(results_heading)
             st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
@@ -522,16 +533,6 @@ def render_screener_tab():
 
             filtered_symbols = df_display["TV_Symbol"].tolist()
             st.subheader(f"📋 Copy Filtered Scan Results to TradingView ({len(filtered_symbols)} Stocks)")
-
-            # --- 3. RENDER SORTING ENGINE DIRECTLY UNDER HOT-SWAP HEADER ---
-            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"] + active_perf_labels
-            sc_s1, sc_s2 = st.columns([1.5, 3.5])
-            with sc_s1:
-                st.selectbox("🔀 Sort Results By (Updates Hot-Swap):", options=sort_options, key=f"scan_sort_{rc}_{sc}")
-            with sc_s2:
-                st.write("")
-                st.write("")
-                st.checkbox("Ascending Order", key=f"scan_asc_{rc}_{sc}")
 
             if filtered_symbols:
                 batch_size = 30
