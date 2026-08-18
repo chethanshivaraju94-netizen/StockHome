@@ -389,14 +389,21 @@ def render_screener_tab():
             wl_names = list(st.session_state.watchlists.keys())
 
             # --- UNIFIED CONTROL BAR DIRECTLY ABOVE TABLE ---
-            cross_filter_wls = st.multiselect(
-                "🔍 Filter: Show only stocks also present in:", 
-                options=wl_names, 
-                key=f"scan_filter_{rc}_{sc}"
-            )
+            col_inc, col_exc = st.columns(2)
+            with col_inc:
+                cross_filter_wls = st.multiselect(
+                    "🔍 Include ONLY stocks present in:", 
+                    options=wl_names, 
+                    key=f"scan_filter_inc_{rc}_{sc}"
+                )
+            with col_exc:
+                exclude_wls = st.multiselect(
+                    "🚫 Exclude stocks present in:", 
+                    options=["[ALL WATCHLISTS]"] + wl_names, 
+                    key=f"scan_filter_exc_{rc}_{sc}"
+                )
 
             sort_options = ["Original Scan Order", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Perf % 1W", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
-            # Ensure all available active perfs are in sort options
             for p_lbl in active_perf_labels:
                 if p_lbl not in sort_options:
                     sort_options.append(p_lbl)
@@ -428,12 +435,21 @@ def render_screener_tab():
                     key=f"scan_top_pct_val_{rc}_{sc}"
                 )
 
-            # Apply Watchlist Cross-Filter
+            # Apply Watchlist Cross-Filter (INCLUDE)
             if cross_filter_wls:
                 valid_symbols = set()
                 for f_wl in cross_filter_wls:
                     valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
                 df_display = df_display[df_display["name"].isin(valid_symbols)]
+                
+            # Apply Watchlist Cross-Filter (EXCLUDE)
+            if exclude_wls:
+                exclude_symbols = set()
+                wls_to_check = wl_names if "[ALL WATCHLISTS]" in exclude_wls else exclude_wls
+                for f_wl in wls_to_check:
+                    if f_wl in st.session_state.watchlists:
+                        exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
+                df_display = df_display[~df_display["name"].isin(exclude_symbols)]
 
             # Apply Python-Level Sorting
             if sort_by != "Original Scan Order" and sort_by in df_display.columns:
