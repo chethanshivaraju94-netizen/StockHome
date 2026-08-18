@@ -1,4 +1,5 @@
 import time
+import math
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -389,10 +390,37 @@ def render_screener_tab():
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
 
-            # --- 1. RENDER FILTER DROPDOWN DIRECTLY ABOVE TABLE ---
-            cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=wl_names, key=f"scan_filter_{rc}_{sc}")
+            # --- 1. RENDER FILTER DROPDOWN & TOP % SLICER DIRECTLY ABOVE TABLE ---
+            col_wl_filter, col_top_slicer = st.columns([2.5, 1.5])
+            with col_wl_filter:
+                cross_filter_wls = st.multiselect(
+                    "🔍 Filter: Show only stocks also present in:", 
+                    options=wl_names, 
+                    key=f"scan_filter_{rc}_{sc}"
+                )
+            with col_top_slicer:
+                c_tp_chk, c_tp_val = st.columns([1.0, 1.2])
+                with c_tp_chk:
+                    st.write("")
+                    st.write("")
+                    en_top_pct = st.checkbox(
+                        "🎯 Top % Only", 
+                        value=st.session_state.get(f"scan_top_pct_en_{rc}_{sc}", False), 
+                        key=f"scan_top_pct_en_{rc}_{sc}",
+                        help="Filter down to only the highest X% of stocks based on current active sort."
+                    )
+                with c_tp_val:
+                    top_pct_val = st.number_input(
+                        "Top % of List:", 
+                        min_value=0.1, 
+                        max_value=100.0, 
+                        value=float(st.session_state.get(f"scan_top_pct_val_{rc}_{sc}", 2.0)), 
+                        step=0.5, 
+                        disabled=not en_top_pct, 
+                        key=f"scan_top_pct_val_{rc}_{sc}"
+                    )
 
-            # --- 2. APPLY FILTER & SORTING ---
+            # --- 2. APPLY FILTER, SORTING & TOP % SLICING ---
             sort_by = st.session_state.get(f"scan_sort_{rc}_{sc}", "Original Scan Order")
             sort_asc = st.session_state.get(f"scan_asc_{rc}_{sc}", False)
 
@@ -407,7 +435,15 @@ def render_screener_tab():
                 df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
                 df_display = df_display.sort_values(by=temp_col, ascending=sort_asc).drop(columns=[temp_col])
 
-            st.subheader(f"📋 Scan Results ({len(df_display)} Stocks Found)")
+            total_before_slice = len(df_display)
+            if en_top_pct and total_before_slice > 0:
+                num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
+                df_display = df_display.head(num_to_keep)
+                results_heading = f"📋 Scan Results ({len(df_display)} of {total_before_slice} Stocks Shown — Top {top_pct_val}%)"
+            else:
+                results_heading = f"📋 Scan Results ({len(df_display)} Stocks Found)"
+
+            st.subheader(results_heading)
             st.caption("💡 **RS Rating:** IBD-Style 1-99 Percentile Score calculated across 4,000+ listed Indian equities before filters.")
 
             table_ev_scan = st.dataframe(
