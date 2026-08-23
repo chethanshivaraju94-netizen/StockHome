@@ -3,11 +3,11 @@ import os
 import requests
 import streamlit as st
 
-WATCHLIST_FILE = "local_watchlists.json"
-PRESETS_FILE = "local_filter_presets.json"
-REPORTS_FILE = "local_fundamental_reports.json"
-BRIEFINGS_FILE = "local_market_briefings.json"
-TRADEBOOK_FILE = "local_tradebook.json"
+WATCHLIST_FILE = "watchlists.json"
+PRESETS_FILE = "filter_presets.json"
+REPORTS_FILE = "fundamental_reports.json"
+BRIEFINGS_FILE = "market_briefings.json"
+TRADEBOOK_FILE = "tradebook.json"
 
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", None)
 GIST_ID = st.secrets.get("GIST_ID", None)
