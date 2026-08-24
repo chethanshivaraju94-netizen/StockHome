@@ -11,3 +11,4 @@ google-genai
 markdown
 fpdf2
 curl-cffi==0.6.2
+google-cloud-firestore
