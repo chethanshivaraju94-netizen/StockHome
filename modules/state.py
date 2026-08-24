@@ -1,15 +1,19 @@
 import json
 import os
+import requests
 import streamlit as st
 from google.cloud import firestore
 from google.oauth2 import service_account
 
-# Local fallback files (Used for the initial data migration and local backups)
+# Local & Gist Reference Filenames
 WATCHLIST_FILE = "watchlists.json"
 PRESETS_FILE = "filter_presets.json"
 REPORTS_FILE = "fundamental_reports.json"
 BRIEFINGS_FILE = "market_briefings.json"
 TRADEBOOK_FILE = "tradebook.json"
+
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", None)
+GIST_ID = st.secrets.get("GIST_ID", None)
 
 @st.cache_resource
 def get_db():
@@ -17,71 +21,93 @@ def get_db():
     if "firebase" in st.secrets:
         try:
             firebase_secrets = dict(st.secrets["firebase"])
-            # Safely parse the private key to handle line breaks in TOML
             if "private_key" in firebase_secrets and isinstance(firebase_secrets["private_key"], str):
                 firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
                 
             creds = service_account.Credentials.from_service_account_info(firebase_secrets)
             return firestore.Client(credentials=creds, project=firebase_secrets.get("project_id"))
         except Exception as e:
-            st.warning(f"Firestore connection failed. Using local disk fallback. Error: {e}")
+            st.warning(f"Firestore connection failed: {e}")
             return None
     return None
 
-def load_data_from_db(doc_name, fallback_file, default_data):
-    """Fetches data from Firestore, migrating local JSON files on first boot."""
+def fetch_from_gist(filename):
+    """Fetches data from GitHub Gist for seamless one-time migration."""
+    if GITHUB_TOKEN and GIST_ID:
+        try:
+            headers = {
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+            res = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5)
+            if res.status_code == 200:
+                gist_data = res.json()
+                if filename in gist_data.get("files", {}):
+                    content = gist_data["files"][filename].get("content", "")
+                    if content.strip():
+                        return json.loads(content)
+        except Exception:
+            pass
+    return None
+
+def load_data_from_db(doc_name, filename, default_data):
+    """Loads from Firestore. If empty, migrates automatically from Gist or local disk."""
     db = get_db()
     
-    # 1. Try fetching from Firestore first
+    # 1. Read from Firestore
     if db:
         try:
             doc_ref = db.collection("stockhome_data").document(doc_name)
             doc = doc_ref.get()
             if doc.exists:
                 data = doc.to_dict()
-                return data.get("data", data) # Safely extracts the payload
+                return data.get("data", data)
         except Exception as e:
-            st.warning(f"Failed reading {doc_name} from Firestore: {e}")
-            
-    # 2. Fallback to reading from local JSON if Firestore is empty or disconnected
-    if os.path.exists(fallback_file):
+            st.warning(f"Error reading {doc_name} from Firestore: {e}")
+
+    # 2. Auto-Migrate from GitHub Gist if Firestore is not yet populated
+    gist_data = fetch_from_gist(filename)
+    if gist_data is not None:
+        if db:
+            try:
+                db.collection("stockhome_data").document(doc_name).set({"data": gist_data})
+            except Exception:
+                pass
+        return gist_data
+
+    # 3. Fallback to local disk
+    if os.path.exists(filename):
         try:
-            with open(fallback_file, "r") as f:
+            with open(filename, "r") as f:
                 local_data = json.load(f)
-                
-                # 3. Seamless Migration: If local data exists but Firestore was empty, upload it now.
                 if db:
                     try:
                         db.collection("stockhome_data").document(doc_name).set({"data": local_data})
                     except Exception:
-                        pass 
-                
+                        pass
                 return local_data
         except Exception:
             pass
 
     return default_data
 
-def save_data_to_db(doc_name, data_dict, fallback_file):
-    """Saves data to Firestore and keeps a local JSON backup."""
-    # Always save a local backup copy
+def save_data_to_db(doc_name, data_dict, filename):
+    """Persists data to Firestore and saves a local disk backup."""
     try:
-        with open(fallback_file, "w") as f:
+        with open(filename, "w") as f:
             json.dump(data_dict, f, indent=2)
     except Exception:
         pass
 
-    # Push live to Firestore
     db = get_db()
     if db:
         try:
             db.collection("stockhome_data").document(doc_name).set({"data": data_dict})
         except Exception as e:
-            st.warning(f"Failed to save {doc_name} to Firestore: {e}")
-
+            st.error(f"Failed to persist {doc_name} to Firestore: {e}")
 
 # ==========================================
-# SPECIFIC DATA LOADERS
+# DATA GETTERS & SETTERS
 # ==========================================
 
 def load_watchlists():
@@ -182,7 +208,6 @@ def init_session_state():
     if "tradebook" not in st.session_state:
         st.session_state.tradebook = load_tradebook()
     
-    # UI Trackers
     if "active_scan_summary" not in st.session_state:
         st.session_state.active_scan_summary = {}
     if "rs_rating_map" not in st.session_state:
