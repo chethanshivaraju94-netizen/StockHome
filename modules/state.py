@@ -1,78 +1,101 @@
 import json
 import os
-import requests
 import streamlit as st
+from google.cloud import firestore
+from google.oauth2 import service_account
 
+# Local fallback files (Used for the initial data migration and local backups)
 WATCHLIST_FILE = "watchlists.json"
 PRESETS_FILE = "filter_presets.json"
 REPORTS_FILE = "fundamental_reports.json"
 BRIEFINGS_FILE = "market_briefings.json"
 TRADEBOOK_FILE = "tradebook.json"
 
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", None)
-GIST_ID = st.secrets.get("GIST_ID", None)
-
-def load_watchlists():
-    if GITHUB_TOKEN and GIST_ID:
+@st.cache_resource
+def get_db():
+    """Securely connects to Google Firestore using Streamlit Secrets."""
+    if "firebase" in st.secrets:
         try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            res = requests.get(
-                f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5
-            )
-            if res.status_code == 200:
-                gist_data = res.json()
-                if WATCHLIST_FILE in gist_data["files"]:
-                    content = gist_data["files"][WATCHLIST_FILE]["content"]
-                    return json.loads(content)
+            firebase_secrets = dict(st.secrets["firebase"])
+            # Safely parse the private key to handle line breaks in TOML
+            if "private_key" in firebase_secrets and isinstance(firebase_secrets["private_key"], str):
+                firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
+                
+            creds = service_account.Credentials.from_service_account_info(firebase_secrets)
+            return firestore.Client(credentials=creds, project=firebase_secrets.get("project_id"))
         except Exception as e:
-            st.warning(f"GitHub Gist load failed, switching to local disk: {e}")
+            st.warning(f"Firestore connection failed. Using local disk fallback. Error: {e}")
+            return None
+    return None
 
-    if os.path.exists(WATCHLIST_FILE):
+def load_data_from_db(doc_name, fallback_file, default_data):
+    """Fetches data from Firestore, migrating local JSON files on first boot."""
+    db = get_db()
+    
+    # 1. Try fetching from Firestore first
+    if db:
         try:
-            with open(WATCHLIST_FILE, "r") as f:
-                return json.load(f)
+            doc_ref = db.collection("stockhome_data").document(doc_name)
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                return data.get("data", data) # Safely extracts the payload
+        except Exception as e:
+            st.warning(f"Failed reading {doc_name} from Firestore: {e}")
+            
+    # 2. Fallback to reading from local JSON if Firestore is empty or disconnected
+    if os.path.exists(fallback_file):
+        try:
+            with open(fallback_file, "r") as f:
+                local_data = json.load(f)
+                
+                # 3. Seamless Migration: If local data exists but Firestore was empty, upload it now.
+                if db:
+                    try:
+                        db.collection("stockhome_data").document(doc_name).set({"data": local_data})
+                    except Exception:
+                        pass 
+                
+                return local_data
         except Exception:
             pass
 
-    return {
+    return default_data
+
+def save_data_to_db(doc_name, data_dict, fallback_file):
+    """Saves data to Firestore and keeps a local JSON backup."""
+    # Always save a local backup copy
+    try:
+        with open(fallback_file, "w") as f:
+            json.dump(data_dict, f, indent=2)
+    except Exception:
+        pass
+
+    # Push live to Firestore
+    db = get_db()
+    if db:
+        try:
+            db.collection("stockhome_data").document(doc_name).set({"data": data_dict})
+        except Exception as e:
+            st.warning(f"Failed to save {doc_name} to Firestore: {e}")
+
+
+# ==========================================
+# SPECIFIC DATA LOADERS
+# ==========================================
+
+def load_watchlists():
+    default_wl = {
         "Post Breakout Monitor": ["NSE:ZOMATO", "NSE:CDSL", "NSE:TITAGARH"],
         "Focus List": ["NSE:JINDWORLD", "NSE:TRENT", "NSE:HAL", "NSE:RECLTD"],
         "Weekly Focus": ["NSE:BHEL", "NSE:ABB", "NSE:SIEMENS", "NSE:CGPOWER"],
         "Scan Bulk": [],
         "Sold Stocks": [],
     }
+    return load_data_from_db("watchlists", WATCHLIST_FILE, default_wl)
 
 def save_watchlists(watchlists_dict):
-    try:
-        with open(WATCHLIST_FILE, "w") as f:
-            json.dump(watchlists_dict, f, indent=2)
-    except Exception:
-        pass
-
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            payload = {
-                "files": {
-                    WATCHLIST_FILE: {
-                        "content": json.dumps(watchlists_dict, indent=2)
-                    }
-                }
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{GIST_ID}",
-                headers=headers,
-                json=payload,
-                timeout=5,
-            )
-        except Exception:
-            pass
+    save_data_to_db("watchlists", watchlists_dict, WATCHLIST_FILE)
 
 def load_filter_presets():
     default_ma_configs = [
@@ -117,222 +140,39 @@ def load_filter_presets():
             },
         },
     }
-
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            res = requests.get(
-                f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5
-            )
-            if res.status_code == 200:
-                gist_data = res.json()
-                if PRESETS_FILE in gist_data["files"]:
-                    content = gist_data["files"][PRESETS_FILE]["content"]
-                    return json.loads(content)
-        except Exception:
-            pass
-
-    if os.path.exists(PRESETS_FILE):
-        try:
-            with open(PRESETS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return default_presets
+    return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
 
 def save_filter_presets(presets_dict):
-    try:
-        with open(PRESETS_FILE, "w") as f:
-            json.dump(presets_dict, f, indent=2)
-    except Exception:
-        pass
-
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            payload = {
-                "files": {PRESETS_FILE: {"content": json.dumps(presets_dict, indent=2)}}
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{GIST_ID}",
-                headers=headers,
-                json=payload,
-                timeout=5,
-            )
-        except Exception:
-            pass
+    save_data_to_db("filter_presets", presets_dict, PRESETS_FILE)
 
 def load_fundamental_reports():
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            res = requests.get(
-                f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5
-            )
-            if res.status_code == 200:
-                gist_data = res.json()
-                if REPORTS_FILE in gist_data["files"]:
-                    content = gist_data["files"][REPORTS_FILE]["content"]
-                    return json.loads(content)
-        except Exception:
-            pass
-
-    if os.path.exists(REPORTS_FILE):
-        try:
-            with open(REPORTS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return {}
+    return load_data_from_db("fundamental_reports", REPORTS_FILE, {})
 
 def save_fundamental_reports(reports_dict):
-    try:
-        with open(REPORTS_FILE, "w") as f:
-            json.dump(reports_dict, f, indent=2)
-    except Exception:
-        pass
-
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            payload = {
-                "files": {REPORTS_FILE: {"content": json.dumps(reports_dict, indent=2)}}
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{GIST_ID}",
-                headers=headers,
-                json=payload,
-                timeout=5,
-            )
-        except Exception:
-            pass
+    save_data_to_db("fundamental_reports", reports_dict, REPORTS_FILE)
 
 def load_market_briefings():
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            res = requests.get(
-                f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5
-            )
-            if res.status_code == 200:
-                gist_data = res.json()
-                if BRIEFINGS_FILE in gist_data["files"]:
-                    content = gist_data["files"][BRIEFINGS_FILE]["content"]
-                    return json.loads(content)
-        except Exception:
-            pass
-
-    if os.path.exists(BRIEFINGS_FILE):
-        try:
-            with open(BRIEFINGS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return {}
+    return load_data_from_db("market_briefings", BRIEFINGS_FILE, {})
 
 def save_market_briefings(briefings_dict):
-    try:
-        with open(BRIEFINGS_FILE, "w") as f:
-            json.dump(briefings_dict, f, indent=2)
-    except Exception:
-        pass
-
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            payload = {
-                "files": {BRIEFINGS_FILE: {"content": json.dumps(briefings_dict, indent=2)}}
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{GIST_ID}",
-                headers=headers,
-                json=payload,
-                timeout=5,
-            )
-        except Exception:
-            pass
+    save_data_to_db("market_briefings", briefings_dict, BRIEFINGS_FILE)
 
 def load_tradebook():
     default_tb = {"config": {"starting_capital": 500000.0}, "trades": []}
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            res = requests.get(
-                f"https://api.github.com/gists/{GIST_ID}", headers=headers, timeout=5
-            )
-            if res.status_code == 200:
-                gist_data = res.json()
-                if TRADEBOOK_FILE in gist_data["files"]:
-                    content = gist_data["files"][TRADEBOOK_FILE]["content"]
-                    return json.loads(content)
-        except Exception:
-            pass
-
-    if os.path.exists(TRADEBOOK_FILE):
-        try:
-            with open(TRADEBOOK_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-
-    return default_tb
+    return load_data_from_db("tradebook", TRADEBOOK_FILE, default_tb)
 
 def save_tradebook(tb_dict):
-    try:
-        with open(TRADEBOOK_FILE, "w") as f:
-            json.dump(tb_dict, f, indent=2)
-    except Exception:
-        pass
+    save_data_to_db("tradebook", tb_dict, TRADEBOOK_FILE)
 
-    if GITHUB_TOKEN and GIST_ID:
-        try:
-            headers = {
-                "Authorization": f"token {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github.v3+json",
-            }
-            payload = {
-                "files": {TRADEBOOK_FILE: {"content": json.dumps(tb_dict, indent=2)}}
-            }
-            requests.patch(
-                f"https://api.github.com/gists/{GIST_ID}",
-                headers=headers,
-                json=payload,
-                timeout=5,
-            )
-        except Exception:
-            pass
+# ==========================================
+# SESSION STATE INITIALIZATION
+# ==========================================
 
 def init_session_state():
     if "watchlists" not in st.session_state:
         st.session_state.watchlists = load_watchlists()
     if "active_watchlist_name" not in st.session_state:
-        st.session_state.active_watchlist_name = list(
-            st.session_state.watchlists.keys()
-        )[0]
+        st.session_state.active_watchlist_name = list(st.session_state.watchlists.keys())[0]
     if "filter_presets" not in st.session_state:
         st.session_state.filter_presets = load_filter_presets()
     if "fundamental_reports" not in st.session_state:
@@ -341,6 +181,8 @@ def init_session_state():
         st.session_state.market_briefings = load_market_briefings()
     if "tradebook" not in st.session_state:
         st.session_state.tradebook = load_tradebook()
+    
+    # UI Trackers
     if "active_scan_summary" not in st.session_state:
         st.session_state.active_scan_summary = {}
     if "rs_rating_map" not in st.session_state:
