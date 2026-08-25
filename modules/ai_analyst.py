@@ -726,9 +726,12 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
             if news_items:
                 aggregated_news += f"\n\n### Ticker: {clean_sym}\n"
                 for article in news_items[:5]:
-                    title = article.get("title", "No Title")
-                    publisher = article.get("publisher", "Unknown Publisher")
-                    summary = article.get("summary", "")
+                    # yfinance now nests the actual data inside a 'content' key
+                    content = article.get("content", article)
+                    
+                    title = content.get("title", "No Title")
+                    publisher = content.get("provider", {}).get("displayName", "Unknown Publisher")
+                    summary = content.get("summary", "")
                     
                     if summary:
                         aggregated_news += f"- **{title}** ({publisher}): {summary}\n"
@@ -772,6 +775,7 @@ If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre
         )
         if status_log:
             status_log.write("✅ Catalyst Scan Complete!")
+        # Return both the AI's analysis AND the raw news data so you can verify it
         return response.text, aggregated_news
     except Exception as e:
         if status_log:
