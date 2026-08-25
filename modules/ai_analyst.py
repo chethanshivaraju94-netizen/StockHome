@@ -730,7 +730,6 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
                     publisher = article.get("publisher", "Unknown Publisher")
                     summary = article.get("summary", "")
                     
-                    # If Yahoo provides no summary, we just feed the AI the headline
                     if summary:
                         aggregated_news += f"- **{title}** ({publisher}): {summary}\n"
                     else:
@@ -773,7 +772,6 @@ If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre
         )
         if status_log:
             status_log.write("✅ Catalyst Scan Complete!")
-        # Return both the AI's analysis AND the raw news data so you can verify it
         return response.text, aggregated_news
     except Exception as e:
         if status_log:
