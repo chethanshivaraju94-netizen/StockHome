@@ -16,6 +16,7 @@ GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", None)
 GIST_ID = st.secrets.get("GIST_ID", None)
 
 @st.cache_resource
+@st.cache_resource
 def get_db():
     """Securely connects to Google Firestore using Streamlit Secrets."""
     if "firebase" in st.secrets:
@@ -25,7 +26,13 @@ def get_db():
                 firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
                 
             creds = service_account.Credentials.from_service_account_info(firebase_secrets)
-            return firestore.Client(credentials=creds, project=firebase_secrets.get("project_id"))
+            
+            # Bulletproof connection explicitly defining the default database
+            return firestore.Client(
+                credentials=creds, 
+                project=firebase_secrets.get("project_id"),
+                database="(default)"
+            )
         except Exception as e:
             st.warning(f"Firestore connection failed: {e}")
             return None
