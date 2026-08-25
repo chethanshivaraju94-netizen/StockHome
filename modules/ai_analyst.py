@@ -726,7 +726,6 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
             if news_items:
                 aggregated_news += f"\n\n### Ticker: {clean_sym}\n"
                 for article in news_items[:5]:
-                    # yfinance now nests the actual data inside a 'content' key
                     content = article.get("content", article)
                     
                     title = content.get("title", "No Title")
@@ -746,22 +745,26 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
         return "No notable news events found for these tickers in the recent feeds.", ""
 
     if status_log:
-        status_log.write("🧠 AI analyzing news for actionable breakout triggers...")
+        status_log.write("🧠 AI analyzing news for hard fundamental catalysts...")
 
     prompt = f"""
 You are an elite CAN SLIM / Momentum Equities Analyst. 
-I have provided a raw feed of recent news headlines (and summaries, if available) for stocks in my current active watchlist. These stocks are currently building bases, and I am looking for a fundamental spark that could trigger an explosive breakout today.
+I have provided a raw feed of recent news headlines (and summaries, if available) for stocks in my active watchlist. 
+My technical chart analysis and execution rules are already handled. Your ONLY job is to extract, quantify, and grade the fundamental catalyst.
 
 RAW NEWS FEED:
 {aggregated_news}
 
 YOUR TASK:
 1. FILTER THE NOISE: Discard routine market updates, generic sector commentary, minor dividends, or irrelevant fluff.
-2. IDENTIFY CATALYSTS: Find ONLY the news items that serve as a strong fundamental catalyst (e.g., massive earnings beats, huge order wins, acquisitions, FDA approvals, management guidance upgrades, or Greenfield CapEx). Note: If a summary is missing, rely entirely on the Headline to make your judgment.
-3. DELIVER THE VERDICT: For each identified stock with a catalyst, you MUST provide:
-   - **Ticker Symbol**
-   - **Headline:** The exact headline of the news.
-   - **🚀 WHY IT IS A TRIGGER:** A 2-sentence explanation of the exact catalyst mechanism (how it impacts future earnings, institutional sponsorship, etc.) and why it could ignite volume-backed momentum today.
+2. IDENTIFY CATALYSTS & QUANTIFY: Find the news items that serve as fundamental catalysts. If a summary is missing, rely entirely on the Headline.
+3. DELIVER THE CONVICTION CARD: For each identified stock with a catalyst, you MUST output this exact structure:
+
+### [Ticker Symbol]
+* **Headline:** [The exact headline]
+* **💎 Catalyst Tier:** [Tier 1 (Transformational/Game-Changer), Tier 2 (Incremental Catalyst), or Tier 3 (Routine News)]
+* **📊 Hard Metrics:** [Extract the exact numbers from the text: ₹ Cr amounts, % Growth, Deal Size, margins, etc. If none are explicitly stated, write "No specific metrics provided."]
+* **🚀 Institutional Thesis:** [A strict 1-2 sentence explanation of exactly how this news alters forward earnings estimates, business scalability, or institutional perception.]
 
 Format the output cleanly in Markdown. 
 If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre-market catalysts detected in the overnight feeds."
@@ -775,7 +778,6 @@ If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre
         )
         if status_log:
             status_log.write("✅ Catalyst Scan Complete!")
-        # Return both the AI's analysis AND the raw news data so you can verify it
         return response.text, aggregated_news
     except Exception as e:
         if status_log:
