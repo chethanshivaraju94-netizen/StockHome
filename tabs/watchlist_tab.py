@@ -145,10 +145,15 @@ def render_watchlist_tab():
                 st.warning("Watchlist is currently empty.")
             else:
                 with st.status("Initializing Catalyst Engine...", expanded=True) as status_box:
-                    catalyst_report = run_gemini_news_catalyst_scan(current_symbols, status_log=status_box)
+                    catalyst_report, raw_news_feed = run_gemini_news_catalyst_scan(current_symbols, status_log=status_box)
+                    
                     if catalyst_report:
                         st.markdown("---")
                         st.markdown(catalyst_report)
+                        
+                        if raw_news_feed:
+                            with st.expander("🔎 View Raw News Feed (Audit / Verification)"):
+                                st.markdown(raw_news_feed)
 
     if not current_symbols:
         st.info(f"The watchlist **{active_wl}** is currently empty. Add setups from the Screener tab or paste symbols above!")
