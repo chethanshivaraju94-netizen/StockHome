@@ -708,7 +708,7 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
     if not gemini_key:
         if status_log:
             status_log.error("❌ Missing GEMINI_API_KEY in Streamlit Secrets!")
-        return None
+        return None, None
 
     client = genai.Client(api_key=gemini_key)
 
@@ -726,35 +726,40 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
             if news_items:
                 aggregated_news += f"\n\n### Ticker: {clean_sym}\n"
                 for article in news_items[:5]:
-                    title = article.get("title", "")
-                    publisher = article.get("publisher", "")
-                    summary = article.get("summary", "No summary provided.")
-                    aggregated_news += f"- **{title}** ({publisher}): {summary}\n"
+                    title = article.get("title", "No Title")
+                    publisher = article.get("publisher", "Unknown Publisher")
+                    summary = article.get("summary", "")
+                    
+                    # If Yahoo provides no summary, we just feed the AI the headline
+                    if summary:
+                        aggregated_news += f"- **{title}** ({publisher}): {summary}\n"
+                    else:
+                        aggregated_news += f"- **{title}** ({publisher})\n"
         except Exception:
             pass
 
     if not aggregated_news.strip():
         if status_log:
             status_log.warning("⚠️ No recent news found for the selected watchlist.")
-        return "No notable news events found for these tickers in the recent feeds."
+        return "No notable news events found for these tickers in the recent feeds.", ""
 
     if status_log:
         status_log.write("🧠 AI analyzing news for actionable breakout triggers...")
 
     prompt = f"""
 You are an elite CAN SLIM / Momentum Equities Analyst. 
-I have provided a raw feed of recent news headlines and summaries for stocks in my current active watchlist. These stocks are currently building bases, and I am looking for a fundamental spark that could trigger an explosive breakout today.
+I have provided a raw feed of recent news headlines (and summaries, if available) for stocks in my current active watchlist. These stocks are currently building bases, and I am looking for a fundamental spark that could trigger an explosive breakout today.
 
 RAW NEWS FEED:
 {aggregated_news}
 
 YOUR TASK:
 1. FILTER THE NOISE: Discard routine market updates, generic sector commentary, minor dividends, or irrelevant fluff.
-2. IDENTIFY CATALYSTS: Find ONLY the news items that serve as a strong fundamental catalyst (e.g., massive earnings beats, huge order wins, acquisitions, FDA approvals, management guidance upgrades, or Greenfield CapEx).
+2. IDENTIFY CATALYSTS: Find ONLY the news items that serve as a strong fundamental catalyst (e.g., massive earnings beats, huge order wins, acquisitions, FDA approvals, management guidance upgrades, or Greenfield CapEx). Note: If a summary is missing, rely entirely on the Headline to make your judgment.
 3. DELIVER THE VERDICT: For each identified stock with a catalyst, you MUST provide:
    - **Ticker Symbol**
-   - **Headline & Summary:** A concise 2-sentence summary of what happened.
-   - **🚀 WHY IT IS A TRIGGER:** A 2-sentence explanation of the exact catalyst mechanism (e.g., how it impacts future earnings estimates, institutional sponsorship, or forward valuation) and why it could ignite volume-backed momentum today.
+   - **Headline:** The exact headline of the news.
+   - **🚀 WHY IT IS A TRIGGER:** A 2-sentence explanation of the exact catalyst mechanism (how it impacts future earnings, institutional sponsorship, etc.) and why it could ignite volume-backed momentum today.
 
 Format the output cleanly in Markdown. 
 If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre-market catalysts detected in the overnight feeds."
@@ -768,8 +773,9 @@ If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre
         )
         if status_log:
             status_log.write("✅ Catalyst Scan Complete!")
-        return response.text
+        # Return both the AI's analysis AND the raw news data so you can verify it
+        return response.text, aggregated_news
     except Exception as e:
         if status_log:
             status_log.error(f"❌ AI Analysis failed: {e}")
-        return None
+        return None, None
