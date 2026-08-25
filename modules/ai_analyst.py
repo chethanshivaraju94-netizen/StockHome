@@ -750,28 +750,31 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
     prompt = f"""
 You are an elite CAN SLIM / Momentum Equities Analyst and Fundamental Catalyst Specialist.
 I have provided a raw feed of recent news headlines and summaries for stocks in my active watchlist.
-Your sole objective is to conduct an exhaustive extraction of all fundamental catalysts and forward growth triggers. Do NOT artificially cap or restrict your findings to 1-2 points. If a company has multiple metrics, drivers, or recent developments, list every single one of them.
+Your sole objective is to conduct an exhaustive extraction of all fundamental catalysts and forward growth triggers without redundancy.
 
 RAW NEWS FEED:
 {aggregated_news}
 
 YOUR TASK:
 1. FILTER THE NOISE: Discard routine market noise, generic macro commentary, minor dividends, or non-material corporate PR.
-2. COMPREHENSIVE CATALYST EXTRACTION: For every stock that has material news, identify and detail ALL underlying triggers and events present in the feed.
+2. COMPREHENSIVE CATALYST EXTRACTION: For every stock that has material news, extract quantifiable metrics and explain their mechanism as a forward trigger in a single, unified bullet point. Do not miss any key triggers.
 3. OUTPUT FORMAT: For each stock with catalysts, render this exact comprehensive structure:
 
 ### [Ticker Symbol]
-* **📰 Headlines / Events Detected:**
-  * [List all relevant headlines/events found for this stock]
-* **💎 Catalyst Tier:** [Tier 1 (Transformational/Game-Changer), Tier 2 (Incremental Catalyst), or Tier 3 (Routine / Minor Catalyst)]
-* **📊 Exhaustive Hard Metrics & Quantifiable Data:**
-  * [Bullet for each specific metric: e.g., Revenue growth %, PAT jump %, Order Book ₹ Cr, Deal Size, EBITDA margin expansion, etc.]
-  * [Continue listing every hard number mentioned across the articles without truncation]
-* **🚀 Forward Triggers & Catalyst Mechanisms (Why It Matters):**
-  * [Detail each distinct driver: e.g., Capacity expansion timeline, new product launches, export market entries, margin tailwinds, debt reduction to net-cash]
-  * [Explain how these factors combine to trigger institutional earnings upgrades and multi-quarter re-rating]
 
-Format cleanly in Markdown with nested bullet points.
+**📰 Headlines / Events Detected:**
+* *[Insert exact Headline 1]*
+* *[Insert exact Headline 2 (if multiple)]*
+
+**💎 Catalyst Tier:** [YOU MUST OUTPUT EXACTLY ONE OF THESE 3 STREAMLIT COLOR-CODED TAGS:] 
+:green[**Tier 1 (Transformational/Game-Changer)**] OR :orange[**Tier 2 (Incremental Catalyst)**] OR :gray[**Tier 3 (Routine / Minor Catalyst)**]
+
+**🚀 Key Fundamental Catalysts & Triggers (News-Backed):**
+* **[Extracted Hard Metric 1, e.g., 4.5% rise in Q1 profit]:** [Directly explain the forward trigger mechanism: how this specific metric impacts future earnings, operational leverage, or institutional perception].
+* **[Extracted Hard Metric 2, e.g., robust retail loan growth]:** [Directly explain its specific impact...].
+* *(Continue listing every identified metric/trigger combination clearly and exhaustively)*
+
+Format cleanly in Markdown. 
 If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable pre-market catalysts detected in the overnight feeds."
 """
 
