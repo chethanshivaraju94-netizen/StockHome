@@ -9,6 +9,7 @@ from google import genai
 import markdown
 import requests
 import streamlit as st
+import yfinance as yf
 from modules.state import save_fundamental_reports, save_market_briefings
 
 
@@ -363,11 +364,10 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
                     contents=[prompt] + uploaded_files,
                     config={"service_tier": "flex", "http_options": {"timeout": 900000}},
                 )
-                break  # Exit loop if successful
+                break
             except Exception as e:
                 err_str = str(e).upper()
                 
-                # Check for Google API Capacity Issues (503 / High Demand)
                 if "503" in err_str or "UNAVAILABLE" in err_str or "HIGH DEMAND" in err_str:
                     if attempt < max_retries - 1:
                         wait_time = (attempt + 1) * 5
@@ -378,7 +378,6 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
                     else:
                         raise Exception("Google Gemini API is currently unavailable due to high global demand. Please try again later.")
                 
-                # Check for Document Size Limits (400 / Too Many Tokens)
                 elif "TOKENS ALLOWED" in err_str or "400" in err_str:
                     if status_log:
                         status_log.warning(f"⚠️ OVERLOAD: {clean_ticker} documents are too massive. Retrying with fewer files...")
@@ -392,8 +391,6 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
                         break
                     except Exception as fallback_e:
                         raise fallback_e
-                
-                # Unhandled exceptions raise immediately
                 else:
                     raise e
         
@@ -435,7 +432,7 @@ Bold ONLY key metrics, figures, and definitive "Yes/No" answers.
         if status_log:
             status_log.write(
                 f"✅ **{clean_ticker}:** Analysis complete! Verdict ->"
-                f" **{verdict}** (Saved to Gist)"
+                f" **{verdict}** (Saved to Database)"
             )
 
         if email_addr and email_pass:
@@ -693,11 +690,86 @@ Generate the report following this exact markdown template structure without ski
 
         if status_log:
             status_log.write(
-                f"✅ **Market Briefing Generated for {today_str}** (Saved to Gist)"
+                f"✅ **Market Briefing Generated for {today_str}** (Saved to Database)"
             )
 
         return entry
     except Exception as e:
         if status_log:
             status_log.error(f"❌ Failed to parse Market Briefing -> {e}")
+        return None
+
+
+# ==========================================
+# 5. PRE-MARKET CATALYST SCANNER ENGINE
+# ==========================================
+def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not gemini_key:
+        if status_log:
+            status_log.error("❌ Missing GEMINI_API_KEY in Streamlit Secrets!")
+        return None
+
+    client = genai.Client(api_key=gemini_key)
+
+    if status_log:
+        status_log.write("📡 Fetching overnight news feeds via yfinance...")
+
+    aggregated_news = ""
+    for sym in tickers_list:
+        clean_sym = sym.split(":")[-1].strip().upper()
+        yf_sym = f"{clean_sym}.BO" if "BSE" in str(sym).upper() else f"{clean_sym}.NS"
+        
+        try:
+            ticker = yf.Ticker(yf_sym)
+            news_items = ticker.news
+            if news_items:
+                aggregated_news += f"\n\n### Ticker: {clean_sym}\n"
+                for article in news_items[:5]:
+                    title = article.get("title", "")
+                    publisher = article.get("publisher", "")
+                    summary = article.get("summary", "No summary provided.")
+                    aggregated_news += f"- **{title}** ({publisher}): {summary}\n"
+        except Exception:
+            pass
+
+    if not aggregated_news.strip():
+        if status_log:
+            status_log.warning("⚠️ No recent news found for the selected watchlist.")
+        return "No notable news events found for these tickers in the recent feeds."
+
+    if status_log:
+        status_log.write("🧠 AI analyzing news for actionable breakout triggers...")
+
+    prompt = f"""
+You are an elite CAN SLIM / Momentum Equities Analyst. 
+I have provided a raw feed of recent news headlines and summaries for stocks in my current active watchlist. These stocks are currently building bases, and I am looking for a fundamental spark that could trigger an explosive breakout today.
+
+RAW NEWS FEED:
+{aggregated_news}
+
+YOUR TASK:
+1. FILTER THE NOISE: Discard routine market updates, generic sector commentary, minor dividends, or irrelevant fluff.
+2. IDENTIFY CATALYSTS: Find ONLY the news items that serve as a strong fundamental catalyst (e.g., massive earnings beats, huge order wins, acquisitions, FDA approvals, management guidance upgrades, or Greenfield CapEx).
+3. DELIVER THE VERDICT: For each identified stock with a catalyst, you MUST provide:
+   - **Ticker Symbol**
+   - **Headline & Summary:** A concise 2-sentence summary of what happened.
+   - **🚀 WHY IT IS A TRIGGER:** A 2-sentence explanation of the exact catalyst mechanism (e.g., how it impacts future earnings estimates, institutional sponsorship, or forward valuation) and why it could ignite volume-backed momentum today.
+
+Format the output cleanly in Markdown. 
+If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre-market catalysts detected in the overnight feeds."
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[prompt],
+            config={"service_tier": "flex", "http_options": {"timeout": 90000}},
+        )
+        if status_log:
+            status_log.write("✅ Catalyst Scan Complete!")
+        return response.text
+    except Exception as e:
+        if status_log:
+            status_log.error(f"❌ AI Analysis failed: {e}")
         return None
