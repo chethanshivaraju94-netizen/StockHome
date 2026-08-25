@@ -6,7 +6,11 @@ from modules.config import parse_pasted_tickers, parse_table_selection_multi
 from modules.data import fetch_watchlist_enrichMENT, get_nse_circuit_bands
 from modules.styling import get_left_aligned_column_config, is_circuit_stock_badge
 from modules.state import save_watchlists
-from modules.ai_analyst import show_fundamental_modal, run_gemini_fundamental_analysis
+from modules.ai_analyst import (
+    show_fundamental_modal,
+    run_gemini_fundamental_analysis,
+    run_gemini_news_catalyst_scan,
+)
 
 # --- Helper Callbacks for Reordering ---
 def cb_move_top(wl_name, sym):
@@ -130,6 +134,22 @@ def render_watchlist_tab():
                 except Exception:
                     st.error("Invalid file format. Ensure it is a valid backup file.")
 
+    # --- PRE-MARKET CATALYST SCANNER UI ---
+    with st.expander("🚀 AI Pre-Market Catalyst Scanner", expanded=False):
+        st.markdown(
+            "Scan overnight news feeds for tickers in **"
+            f"{active_wl}** to identify high-probability breakout catalysts for today's session."
+        )
+        if st.button("🔍 Scan Overnight Catalysts", type="primary", use_container_width=True, key="scan_news_btn"):
+            if not current_symbols:
+                st.warning("Watchlist is currently empty.")
+            else:
+                with st.status("Initializing Catalyst Engine...", expanded=True) as status_box:
+                    catalyst_report = run_gemini_news_catalyst_scan(current_symbols, status_log=status_box)
+                    if catalyst_report:
+                        st.markdown("---")
+                        st.markdown(catalyst_report)
+
     if not current_symbols:
         st.info(f"The watchlist **{active_wl}** is currently empty. Add setups from the Screener tab or paste symbols above!")
     else:
@@ -182,7 +202,6 @@ def render_watchlist_tab():
         for wl_name, sym_list in st.session_state.watchlists.items():
             wl_lower = wl_name.lower()
             
-            # Strict Priority: 'weekly' evaluated before 'focus' to prevent overlap bugs
             if "breakout" in wl_lower:
                 dot = "🔵"
             elif "weekly" in wl_lower:
@@ -266,7 +285,7 @@ def render_watchlist_tab():
                 for idx, sym in enumerate(sel_symbols):
                     clean_sym = sym.split(":")[-1].strip().upper()
                     if clean_sym in st.session_state.fundamental_reports and not force_reanalyze_wl:
-                        status_box_wl.write(f"⏩ **[{idx + 1}/{len(sel_symbols)}] {clean_sym}:** Report already exists in Gist.")
+                        status_box_wl.write(f"⏩ **[{idx + 1}/{len(sel_symbols)}] {clean_sym}:** Report already exists in Database.")
                     else:
                         status_box_wl.write(f"⚙️ **[{idx + 1}/{len(sel_symbols)}] {clean_sym}:** Downloading Screener.in PDFs & Running AI...")
                         run_gemini_fundamental_analysis(clean_sym, st.session_state.fundamental_reports, status_log=status_box_wl)
