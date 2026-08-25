@@ -745,29 +745,34 @@ def run_gemini_news_catalyst_scan(tickers_list, status_log=None):
         return "No notable news events found for these tickers in the recent feeds.", ""
 
     if status_log:
-        status_log.write("🧠 AI analyzing news for hard fundamental catalysts...")
+        status_log.write("🧠 AI analyzing news for comprehensive fundamental catalysts...")
 
     prompt = f"""
-You are an elite CAN SLIM / Momentum Equities Analyst. 
-I have provided a raw feed of recent news headlines (and summaries, if available) for stocks in my active watchlist. 
-My technical chart analysis and execution rules are already handled. Your ONLY job is to extract, quantify, and grade the fundamental catalyst.
+You are an elite CAN SLIM / Momentum Equities Analyst and Fundamental Catalyst Specialist.
+I have provided a raw feed of recent news headlines and summaries for stocks in my active watchlist.
+Your sole objective is to conduct an exhaustive extraction of all fundamental catalysts and forward growth triggers. Do NOT artificially cap or restrict your findings to 1-2 points. If a company has multiple metrics, drivers, or recent developments, list every single one of them.
 
 RAW NEWS FEED:
 {aggregated_news}
 
 YOUR TASK:
-1. FILTER THE NOISE: Discard routine market updates, generic sector commentary, minor dividends, or irrelevant fluff.
-2. IDENTIFY CATALYSTS & QUANTIFY: Find the news items that serve as fundamental catalysts. If a summary is missing, rely entirely on the Headline.
-3. DELIVER THE CONVICTION CARD: For each identified stock with a catalyst, you MUST output this exact structure:
+1. FILTER THE NOISE: Discard routine market noise, generic macro commentary, minor dividends, or non-material corporate PR.
+2. COMPREHENSIVE CATALYST EXTRACTION: For every stock that has material news, identify and detail ALL underlying triggers and events present in the feed.
+3. OUTPUT FORMAT: For each stock with catalysts, render this exact comprehensive structure:
 
 ### [Ticker Symbol]
-* **Headline:** [The exact headline]
-* **💎 Catalyst Tier:** [Tier 1 (Transformational/Game-Changer), Tier 2 (Incremental Catalyst), or Tier 3 (Routine News)]
-* **📊 Hard Metrics:** [Extract the exact numbers from the text: ₹ Cr amounts, % Growth, Deal Size, margins, etc. If none are explicitly stated, write "No specific metrics provided."]
-* **🚀 Institutional Thesis:** [A strict 1-2 sentence explanation of exactly how this news alters forward earnings estimates, business scalability, or institutional perception.]
+* **📰 Headlines / Events Detected:**
+  * [List all relevant headlines/events found for this stock]
+* **💎 Catalyst Tier:** [Tier 1 (Transformational/Game-Changer), Tier 2 (Incremental Catalyst), or Tier 3 (Routine / Minor Catalyst)]
+* **📊 Exhaustive Hard Metrics & Quantifiable Data:**
+  * [Bullet for each specific metric: e.g., Revenue growth %, PAT jump %, Order Book ₹ Cr, Deal Size, EBITDA margin expansion, etc.]
+  * [Continue listing every hard number mentioned across the articles without truncation]
+* **🚀 Forward Triggers & Catalyst Mechanisms (Why It Matters):**
+  * [Detail each distinct driver: e.g., Capacity expansion timeline, new product launches, export market entries, margin tailwinds, debt reduction to net-cash]
+  * [Explain how these factors combine to trigger institutional earnings upgrades and multi-quarter re-rating]
 
-Format the output cleanly in Markdown. 
-If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre-market catalysts detected in the overnight feeds."
+Format cleanly in Markdown with nested bullet points.
+If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable pre-market catalysts detected in the overnight feeds."
 """
 
     try:
@@ -777,7 +782,7 @@ If NO tickers have actionable catalysts, explicitly state "⚪ No actionable pre
             config={"service_tier": "flex", "http_options": {"timeout": 90000}},
         )
         if status_log:
-            status_log.write("✅ Catalyst Scan Complete!")
+            status_log.write("✅ Comprehensive Catalyst Scan Complete!")
         return response.text, aggregated_news
     except Exception as e:
         if status_log:
