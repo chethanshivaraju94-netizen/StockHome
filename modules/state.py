@@ -11,11 +11,12 @@ PRESETS_FILE = "filter_presets.json"
 REPORTS_FILE = "fundamental_reports.json"
 BRIEFINGS_FILE = "market_briefings.json"
 TRADEBOOK_FILE = "tradebook.json"
+CATALYSTS_FILE = "catalyst_reports.json"
 
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", None)
 GIST_ID = st.secrets.get("GIST_ID", None)
 
-@st.cache_resource
+
 @st.cache_resource
 def get_db():
     """Securely connects to Google Firestore using Streamlit Secrets."""
@@ -27,7 +28,6 @@ def get_db():
                 
             creds = service_account.Credentials.from_service_account_info(firebase_secrets)
             
-            # Bulletproof connection explicitly defining the default database
             return firestore.Client(
                 credentials=creds, 
                 project=firebase_secrets.get("project_id"),
@@ -37,6 +37,7 @@ def get_db():
             st.warning(f"Firestore connection failed: {e}")
             return None
     return None
+
 
 def fetch_from_gist(filename):
     """Fetches data from GitHub Gist for seamless one-time migration."""
@@ -56,6 +57,7 @@ def fetch_from_gist(filename):
         except Exception:
             pass
     return None
+
 
 def load_data_from_db(doc_name, filename, default_data):
     """Loads from Firestore. If empty, migrates automatically from Gist or local disk."""
@@ -98,6 +100,7 @@ def load_data_from_db(doc_name, filename, default_data):
 
     return default_data
 
+
 def save_data_to_db(doc_name, data_dict, filename):
     """Persists data to Firestore and saves a local disk backup."""
     try:
@@ -113,6 +116,7 @@ def save_data_to_db(doc_name, data_dict, filename):
         except Exception as e:
             st.error(f"Failed to persist {doc_name} to Firestore: {e}")
 
+
 # ==========================================
 # DATA GETTERS & SETTERS
 # ==========================================
@@ -127,8 +131,10 @@ def load_watchlists():
     }
     return load_data_from_db("watchlists", WATCHLIST_FILE, default_wl)
 
+
 def save_watchlists(watchlists_dict):
     save_data_to_db("watchlists", watchlists_dict, WATCHLIST_FILE)
+
 
 def load_filter_presets():
     default_ma_configs = [
@@ -175,27 +181,43 @@ def load_filter_presets():
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
 
+
 def save_filter_presets(presets_dict):
     save_data_to_db("filter_presets", presets_dict, PRESETS_FILE)
+
 
 def load_fundamental_reports():
     return load_data_from_db("fundamental_reports", REPORTS_FILE, {})
 
+
 def save_fundamental_reports(reports_dict):
     save_data_to_db("fundamental_reports", reports_dict, REPORTS_FILE)
+
 
 def load_market_briefings():
     return load_data_from_db("market_briefings", BRIEFINGS_FILE, {})
 
+
 def save_market_briefings(briefings_dict):
     save_data_to_db("market_briefings", briefings_dict, BRIEFINGS_FILE)
+
 
 def load_tradebook():
     default_tb = {"config": {"starting_capital": 500000.0}, "trades": []}
     return load_data_from_db("tradebook", TRADEBOOK_FILE, default_tb)
 
+
 def save_tradebook(tb_dict):
     save_data_to_db("tradebook", tb_dict, TRADEBOOK_FILE)
+
+
+def load_catalyst_reports():
+    return load_data_from_db("catalyst_reports", CATALYSTS_FILE, {})
+
+
+def save_catalyst_reports(catalysts_dict):
+    save_data_to_db("catalyst_reports", catalysts_dict, CATALYSTS_FILE)
+
 
 # ==========================================
 # SESSION STATE INITIALIZATION
@@ -214,6 +236,8 @@ def init_session_state():
         st.session_state.market_briefings = load_market_briefings()
     if "tradebook" not in st.session_state:
         st.session_state.tradebook = load_tradebook()
+    if "catalyst_reports" not in st.session_state:
+        st.session_state.catalyst_reports = load_catalyst_reports()
     
     if "active_scan_summary" not in st.session_state:
         st.session_state.active_scan_summary = {}
