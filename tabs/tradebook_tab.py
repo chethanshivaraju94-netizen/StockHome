@@ -1134,6 +1134,7 @@ def render_tradebook_tab():
         )
 
         # 2. Evaluate Completed / Tested Setups for Win Rate & Payoff
+        # A setup is evaluated if it is 100% closed OR has realized partial gains
         evaluated_setups = [
             s for s in all_setups_chronological
             if (not s["is_open"]) or (s["shares_sold"] > 0)
@@ -1173,9 +1174,11 @@ def render_tradebook_tab():
             last_outcome = None
 
             for s in all_setups_chronological:
+                # Determine if setup gave positive traction
                 is_working = (s["total_ret_inr"] > 0) or (s["realized_gains"] > 0)
                 is_failed = (s["total_ret_inr"] <= 0) and (not s["is_open"])
 
+                # Skip completely untested, freshly opened break-even positions
                 if not is_working and not is_failed:
                     continue
 
@@ -1198,6 +1201,7 @@ def render_tradebook_tab():
                 if streak_count >= 3:
                     streak_label += " (⚠️ Cut Size 50%)"
 
+            # Calculate average holding days for completed portions
             closed_lots = [t for t in processed_trade_rows if t["raw_status"] == "CLOSED"]
             def calc_days(t):
                 try:
