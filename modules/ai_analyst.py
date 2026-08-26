@@ -784,28 +784,50 @@ Format cleanly in Markdown.
 If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable pre-market catalysts detected in the overnight feeds."
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt],
-            config={"service_tier": "flex", "http_options": {"timeout": 90000}},
-        )
-        if status_log:
-            status_log.write("✅ Comprehensive Catalyst Scan Complete!")
-            
-        report_text = response.text
-        
-        # 1. Store persistent watchlist catalyst cards
-        store_watchlist_catalysts(report_text)
-        
-        # 2. Sync to any open tradebook positions automatically
-        sync_catalysts_to_tradebook_notes(report_text)
-        
-        return report_text, aggregated_news
-    except Exception as e:
-        if status_log:
-            status_log.error(f"❌ AI Analysis failed: {e}")
+    max_retries = 3
+    response = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[prompt],
+                config={"service_tier": "flex", "http_options": {"timeout": 90000}},
+            )
+            break  # Break out of the loop if successful
+        except Exception as e:
+            err_str = str(e).upper()
+            if "503" in err_str or "UNAVAILABLE" in err_str or "HIGH DEMAND" in err_str:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 3
+                    if status_log:
+                        status_log.warning(f"⚠️ Google API overloaded (503). Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    if status_log:
+                        status_log.error("❌ Google Gemini API is currently unavailable due to high global demand. Please try again later.")
+                    return None, None
+            else:
+                if status_log:
+                    status_log.error(f"❌ AI Analysis failed: {e}")
+                return None, None
+
+    if not response:
         return None, None
+
+    if status_log:
+        status_log.write("✅ Comprehensive Catalyst Scan Complete!")
+        
+    report_text = response.text
+    
+    # 1. Store persistent watchlist catalyst cards
+    store_watchlist_catalysts(report_text)
+    
+    # 2. Sync to any open tradebook positions automatically
+    sync_catalysts_to_tradebook_notes(report_text)
+    
+    return report_text, aggregated_news
 
 
 # ==========================================
