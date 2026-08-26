@@ -1004,9 +1004,17 @@ def render_tradebook_tab():
             st.plotly_chart(fig_equity, use_container_width=True)
 
             # 3. Monthly Risk & Execution Tracker Matrix
-            st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
+            c_header, c_filter = st.columns([4, 1])
+            with c_header:
+                st.markdown("#### 🎯 Monthly Execution & Risk-Reward Breakdown")
             
-            monthly_groups = list(df_perf.groupby(["Year", "Month"]))
+            available_years_exec = sorted(df_perf["Year"].dropna().astype(int).unique().tolist(), reverse=True)
+            with c_filter:
+                selected_exec_year = st.selectbox("Select Year", options=available_years_exec, label_visibility="collapsed", key="exec_filter_year")
+            
+            df_perf_filtered = df_perf[df_perf["Year"] == selected_exec_year]
+            
+            monthly_groups = list(df_perf_filtered.groupby(["Year", "Month"]))
             monthly_groups.sort(key=lambda x: (x[0][0], x[0][1]), reverse=True)
 
             tracker_rows = []
