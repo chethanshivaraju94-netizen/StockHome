@@ -1077,40 +1077,98 @@ def render_tradebook_tab():
             df_monthly_tracker = pd.DataFrame(tracker_rows)
             st.dataframe(df_monthly_tracker, use_container_width=True, hide_index=True, column_config=get_left_aligned_column_config(df_monthly_tracker.columns))
 
-        # --- INSTITUTIONAL PERFORMANCE ANALYTICS SUMMARY ---
+        # --- INSTITUTIONAL PERFORMANCE ANALYTICS SUMMARY (SETUP-AWARE) ---
         st.markdown("---")
         st.subheader("📊 Performance Analytics & Risk Metrics")
 
-        fully_closed_setups = [
-            t for t in processed_trade_rows
-            if "WIN" in str(t.get("Status", "")) or "LOSS" in str(t.get("Status", "")) or "SCRATCH" in str(t.get("Status", ""))
-        ]
-        
-        fully_closed_setups = sorted(
-            fully_closed_setups, 
-            key=lambda x: x.get("Date Sold", "1900-01-01"), 
+        # 1. Aggregate unique parent setups across both open and closed lots
+        setup_dict = {}
+        for r in processed_trade_rows:
+            sig = r["Signature"]
+            if sig not in setup_dict:
+                setup_dict[sig] = {
+                    "ticker": r["Ticker"],
+                    "date_bought": r["Date Bought"],
+                    "date_sold": r["Date Sold"],
+                    "total_ret_inr": group_metrics[sig]["total_gain_loss"],
+                    "total_cap": group_metrics[sig]["total_capital"],
+                    "shares_rem": group_metrics[sig]["total_shares_rem"],
+                    "shares_sold": group_metrics[sig]["total_shares_sold"],
+                    "realized_gains": 0.0,
+                    "is_open": group_metrics[sig]["total_shares_rem"] > 0,
+                }
+            setup_dict[sig]["realized_gains"] += r["Realised Gains (₹)"]
+
+        # Sort all setups chronologically by entry date (most recent first)
+        all_setups_chronological = sorted(
+            setup_dict.values(),
+            key=lambda x: (x.get("date_bought", "1900-01-01"), x.get("date_sold", "1900-01-01")),
             reverse=True
         )
-        
-        total_closed = len(fully_closed_setups)
-        unique_setups = len(trade_signatures)
-        active_setups = len(set(t["Signature"] for t in processed_trade_rows if "OPEN" in t["Status"]))
 
-        if total_closed > 0:
-            wins = [t for t in fully_closed_setups if t["Total Ret (₹)"] > 0]
-            losses = [t for t in fully_closed_setups if t["Total Ret (₹)"] <= 0]
+        # 2. Evaluate Completed / Tested Setups for Win Rate & Payoff
+        # A setup is evaluated if it is 100% closed OR has realized partial gains
+        evaluated_setups = [
+            s for s in all_setups_chronological
+            if (not s["is_open"]) or (s["shares_sold"] > 0)
+        ]
+
+        total_evaluated = len(evaluated_setups)
+        unique_setups = len(setup_dict)
+        active_setups = len([s for s in setup_dict.values() if s["is_open"]])
+
+        if total_evaluated > 0:
+            wins = [s for s in evaluated_setups if s["total_ret_inr"] > 0 or s["realized_gains"] > 0]
+            losses = [s for s in evaluated_setups if s["total_ret_inr"] <= 0 and s["realized_gains"] <= 0 and not s["is_open"]]
+            
             win_count = len(wins)
             loss_count = len(losses)
-            win_rate = (win_count / total_closed) * 100
+            eval_total = max(1, win_count + loss_count)
+            win_rate = (win_count / eval_total) * 100
 
-            avg_win_inr = sum(t["Total Ret (₹)"] for t in wins) / win_count if win_count > 0 else 0.0
-            avg_loss_inr = abs(sum(t["Total Ret (₹)"] for t in losses)) / loss_count if loss_count > 0 else 0.0
-            avg_win_pct = sum(t["Avg Ret %"] for t in wins) / win_count if win_count > 0 else 0.0
-            avg_loss_pct = abs(sum(t["Avg Ret %"] for t in losses)) / loss_count if loss_count > 0 else 0.0
+            avg_win_inr = sum(s["total_ret_inr"] for s in wins) / win_count if win_count > 0 else 0.0
+            avg_loss_inr = abs(sum(s["total_ret_inr"] for s in losses)) / loss_count if loss_count > 0 else 0.0
+            
+            avg_win_pct = (sum((s["total_ret_inr"] / s["total_cap"] * 100) for s in wins if s["total_cap"] > 0) / win_count) if win_count > 0 else 0.0
+            avg_loss_pct = abs(sum((s["total_ret_inr"] / s["total_cap"] * 100) for s in losses if s["total_cap"] > 0) / loss_count) if loss_count > 0 else 0.0
 
             rr_monetary = avg_win_inr / avg_loss_inr if avg_loss_inr > 0 else avg_win_inr
             rr_ratio = avg_win_pct / avg_loss_pct if avg_loss_pct > 0 else avg_win_pct
 
+            # 3. Setup-Aware Progressive Exposure Streak
+            streak_count = 0
+            last_outcome = None
+
+            for s in all_setups_chronological:
+                # Determine if setup gave positive traction
+                is_working = (s["total_ret_inr"] > 0) or (s["realized_gains"] > 0)
+                is_failed = (s["total_ret_inr"] <= 0) and (not s["is_open"])
+
+                # Skip completely untested, freshly opened break-even positions
+                if not is_working and not is_failed:
+                    continue
+
+                if last_outcome is None:
+                    last_outcome = is_working
+                    streak_count = 1
+                elif last_outcome == is_working:
+                    streak_count += 1
+                else:
+                    break
+
+            if last_outcome is None:
+                streak_label = "⚪ Untested (New Positions)"
+            elif last_outcome:
+                streak_label = f"🟢 {streak_count} Working Setups"
+                if streak_count >= 2:
+                    streak_label += " (🚀 Full Size Permitted)"
+            else:
+                streak_label = f"🔴 {streak_count} Losses"
+                if streak_count >= 3:
+                    streak_label += " (⚠️ Cut Size 50%)"
+
+            # Calculate average holding days for completed portions
+            closed_lots = [t for t in processed_trade_rows if t["raw_status"] == "CLOSED"]
             def calc_days(t):
                 try:
                     d1 = datetime.strptime(t["Date Bought"], "%Y-%m-%d")
@@ -1119,29 +1177,19 @@ def render_tradebook_tab():
                 except Exception:
                     return 1
 
-            avg_days_win = sum(calc_days(t) for t in wins) / win_count if win_count > 0 else 0
-            avg_days_loss = sum(calc_days(t) for t in losses) / loss_count if loss_count > 0 else 0
+            win_lots = [t for t in closed_lots if t["Gain / Loss (₹)"] > 0]
+            loss_lots = [t for t in closed_lots if t["Gain / Loss (₹)"] <= 0]
 
-            streak_count = 0
-            last_outcome = None
-            for t in fully_closed_setups:
-                is_win = t["Total Ret (₹)"] > 0
-                if last_outcome is None:
-                    last_outcome = is_win
-                    streak_count = 1
-                elif last_outcome == is_win:
-                    streak_count += 1
-                else:
-                    break
-            streak_label = f"🟢 {streak_count} Wins" if last_outcome else f"🔴 {streak_count} Losses"
-            if not last_outcome and streak_count >= 3:
-                streak_label += " (⚠️ Cut Size 50%)"
+            avg_days_win = sum(calc_days(t) for t in win_lots) / len(win_lots) if win_lots else 0
+            avg_days_loss = sum(calc_days(t) for t in loss_lots) / len(loss_lots) if loss_lots else 0
+
         else:
             win_count, loss_count, win_rate = 0, 0, 0.0
             avg_win_inr, avg_loss_inr, avg_win_pct, avg_loss_pct = 0.0, 0.0, 0.0, 0.0
             rr_monetary, rr_ratio, avg_days_win, avg_days_loss = 0.0, 0.0, 0, 0
             streak_label = "⚪ No Closed Trades"
 
+        # --- TOP METRIC CARDS ---
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1: st.metric("Total Setups Logged", f"{unique_setups}", f"Live / Active: {active_setups}")
         with k2: st.metric("Win Rate %", f"{win_rate:.1f}%", f"{win_count}W / {loss_count}L")
