@@ -10,6 +10,7 @@ from modules.ai_analyst import (
     show_fundamental_modal,
     run_gemini_fundamental_analysis,
     run_gemini_news_catalyst_scan,
+    show_catalyst_modal,
 )
 
 # --- Helper Callbacks for Reordering ---
@@ -234,11 +235,19 @@ def render_watchlist_tab():
 
         rs_map = st.session_state.get("rs_rating_map", {})
         merged_df["RS Rating"] = merged_df["name"].str.replace(" 🚨", "").str.upper().map(rs_map).fillna("N/A")
+        
+        # Fundamental Mapping
         merged_df["Fundamental"] = merged_df["name"].str.replace(" 🚨", "").str.upper().map(
             {k: f"{v.get('verdict')} ({v.get('date', '')})" for k, v in st.session_state.fundamental_reports.items()}
         ).fillna("⚪ Not Analyzed")
 
-        wl_cols = ["S.No.", "TV_Symbol", "name", "RS Rating", "Fundamental", "Close", "Change %", "ADR %", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
+        # Catalyst Mapping
+        cat_vault = st.session_state.get("catalyst_reports", {})
+        merged_df["Catalyst"] = merged_df["name"].str.replace(" 🚨", "").str.upper().map(
+            {k: f"💎 Available ({v.get('date', '')})" for k, v in cat_vault.items()}
+        ).fillna("⚪ No Catalyst")
+
+        wl_cols = ["S.No.", "TV_Symbol", "name", "RS Rating", "Fundamental", "Catalyst", "Close", "Change %", "ADR %", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M", "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
 
         wsc = st.session_state.wl_sel_counter
 
@@ -272,17 +281,29 @@ def render_watchlist_tab():
         sel_symbols = parse_table_selection_multi(wl_table_event, merged_df, "TV_Symbol")
 
         st.markdown("---")
-        wf_col1, wf_col2, wf_col3 = st.columns([2.0, 1.3, 1.7])
+        wf_col1, wf_col_cat, wf_col2, wf_col3 = st.columns([1.8, 1.8, 1.0, 1.4])
         with wf_col1:
             if len(sel_symbols) == 1:
                 active_sym_wl = sel_symbols[0]
                 clean_wl_sym_name = active_sym_wl.split(":")[-1].strip().upper()
-                if st.button(f"📖 Open Saved Report Modal ({clean_wl_sym_name})", type="primary", use_container_width=True, key=f"fund_btn_view_wl_{wsc}"):
+                if st.button(f"📖 Fundamental ({clean_wl_sym_name})", type="primary", use_container_width=True, key=f"fund_btn_view_wl_{wsc}"):
                     show_fundamental_modal(active_sym_wl)
             else:
-                st.button("📖 Select a Single Stock Row to Open Report", type="secondary", disabled=True, use_container_width=True, key=f"fund_btn_view_wl_dis_{wsc}")
-        with wf_col2: force_reanalyze_wl = st.checkbox("Force Re-Analyze Existing", value=False, key=f"force_wl_{wsc}", help="If checked, AI will re-fetch Screener PDFs even if a report already exists.")
-        with wf_col3: run_batch_wl = st.button(f"⚡ Analyze Selected ({len(sel_symbols)})", type="primary", use_container_width=True, disabled=len(sel_symbols) == 0, key=f"fund_btn_run_wl_{wsc}")
+                st.button("📖 Select 1 to View", type="secondary", disabled=True, use_container_width=True, key=f"fund_btn_view_wl_dis_{wsc}")
+                
+        with wf_col_cat:
+            if len(sel_symbols) == 1:
+                active_sym_wl = sel_symbols[0]
+                clean_wl_sym_name = active_sym_wl.split(":")[-1].strip().upper()
+                if st.button(f"💎 Catalyst ({clean_wl_sym_name})", type="primary", use_container_width=True, key=f"cat_btn_view_wl_{wsc}"):
+                    show_catalyst_modal(active_sym_wl)
+            else:
+                st.button("💎 Select 1 to View", type="secondary", disabled=True, use_container_width=True, key=f"cat_btn_view_wl_dis_{wsc}")
+
+        with wf_col2: 
+            force_reanalyze_wl = st.checkbox("Force Re-Analyze", value=False, key=f"force_wl_{wsc}", help="If checked, AI will re-fetch Screener PDFs even if a report already exists.")
+        with wf_col3: 
+            run_batch_wl = st.button(f"⚡ Analyze Batch ({len(sel_symbols)})", type="primary", use_container_width=True, disabled=len(sel_symbols) == 0, key=f"fund_btn_run_wl_{wsc}")
 
         if run_batch_wl and len(sel_symbols) > 0:
             with st.status("🧠 Minervini Fundamental AI Analyst — Active Queue", expanded=True) as status_box_wl:
