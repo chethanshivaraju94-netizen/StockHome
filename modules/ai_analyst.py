@@ -4,13 +4,14 @@ import os
 import smtplib
 import time
 from urllib.parse import urljoin
+import re
 from bs4 import BeautifulSoup
 from google import genai
 import markdown
 import requests
 import streamlit as st
 import yfinance as yf
-from modules.state import save_fundamental_reports, save_market_briefings
+from modules.state import save_fundamental_reports, save_market_briefings, save_tradebook
 
 
 # ==========================================
@@ -791,3 +792,64 @@ If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable p
         if status_log:
             status_log.error(f"❌ AI Analysis failed: {e}")
         return None, None
+
+
+# ==========================================
+# 6. CATALYST TRADEBOOK SYNC ENGINE
+# ==========================================
+def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
+    """
+    Parses AI catalyst markdown by ticker and saves/overwrites the catalyst
+    block into open trades' trade_notes in st.session_state.tradebook.
+    """
+    if not catalyst_markdown_text or "No actionable pre-market catalysts" in catalyst_markdown_text:
+        return 0
+
+    if "tradebook" not in st.session_state or "trades" not in st.session_state.tradebook:
+        return 0
+
+    # 1. Parse markdown into dictionary: {TICKER: CATALYST_TEXT}
+    pattern = r"###\s+([A-Za-z0-9_:\.]+)\s*\n(.*?)(?=\n###\s+[A-Za-z0-9_:\.]+|\Z)"
+    matches = re.findall(pattern, catalyst_markdown_text, re.DOTALL)
+
+    catalyst_map = {}
+    for raw_ticker, content in matches:
+        clean_key = raw_ticker.split(":")[-1].strip().upper()
+        catalyst_map[clean_key] = content.strip()
+
+    if not catalyst_map:
+        return 0
+
+    updated_count = 0
+    trades = st.session_state.tradebook.get("trades", [])
+
+    for tr in trades:
+        # We only want to update OPEN positions 
+        if tr.get("status") != "OPEN":
+            continue
+            
+        tr_tick = tr.get("ticker", "").split(":")[-1].strip().upper()
+        
+        if tr_tick in catalyst_map:
+            new_catalyst_section = (
+                f"\n\n--- 🚀 AI Catalyst Report ---\n"
+                f"{catalyst_map[tr_tick]}\n"
+                f"----------------------------"
+            )
+
+            current_notes = tr.get("trade_notes", "") or ""
+
+            # Check if an existing catalyst report exists and cleanly replace it
+            catalyst_tag_pattern = r"\n*--- 🚀 AI Catalyst Report ---.*?----------------------------"
+            if re.search(catalyst_tag_pattern, current_notes, re.DOTALL):
+                updated_notes = re.sub(catalyst_tag_pattern, new_catalyst_section, current_notes, flags=re.DOTALL)
+            else:
+                updated_notes = current_notes.strip() + new_catalyst_section
+
+            tr["trade_notes"] = updated_notes.strip()
+            updated_count += 1
+
+    if updated_count > 0:
+        save_tradebook(st.session_state.tradebook)
+
+    return updated_count
