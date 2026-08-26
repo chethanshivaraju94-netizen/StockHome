@@ -1124,7 +1124,11 @@ def render_tradebook_tab():
             win_count = len(wins)
             loss_count = len(losses)
             eval_total = max(1, win_count + loss_count)
+            
+            # Key Calculations
             win_rate = (win_count / eval_total) * 100
+            win_rate_dec = win_count / eval_total
+            loss_rate_dec = loss_count / eval_total
 
             avg_win_inr = sum(s["total_ret_inr"] for s in wins) / win_count if win_count > 0 else 0.0
             avg_loss_inr = abs(sum(s["total_ret_inr"] for s in losses)) / loss_count if loss_count > 0 else 0.0
@@ -1134,6 +1138,9 @@ def render_tradebook_tab():
 
             rr_monetary = avg_win_inr / avg_loss_inr if avg_loss_inr > 0 else avg_win_inr
             rr_ratio = avg_win_pct / avg_loss_pct if avg_loss_pct > 0 else avg_win_pct
+            
+            # The Expectancy Engine
+            expectancy_inr = (win_rate_dec * avg_win_inr) - (loss_rate_dec * avg_loss_inr)
 
             # 3. Setup-Aware Progressive Exposure Streak
             streak_count = 0
@@ -1187,6 +1194,7 @@ def render_tradebook_tab():
             win_count, loss_count, win_rate = 0, 0, 0.0
             avg_win_inr, avg_loss_inr, avg_win_pct, avg_loss_pct = 0.0, 0.0, 0.0, 0.0
             rr_monetary, rr_ratio, avg_days_win, avg_days_loss = 0.0, 0.0, 0, 0
+            expectancy_inr = 0.0
             streak_label = "⚪ No Closed Trades"
 
         # --- TOP METRIC CARDS ---
@@ -1197,10 +1205,13 @@ def render_tradebook_tab():
         with k4: st.metric("Avg Loss (₹ / %)", f"-₹{avg_loss_inr:,.0f}", f"-{avg_loss_pct:.2f}%")
         with k5: st.metric("Payoff Ratio (R:R)", f"{rr_ratio:.2f}x", f"Monetary: {rr_monetary:.2f}x")
 
-        k6, k7, k8 = st.columns(3)
+        k6, k7, k8, k9 = st.columns(4)
         with k6: st.metric("Avg Days Held (Winners)", f"{avg_days_win:.1f} Days")
         with k7: st.metric("Avg Days Held (Losers)", f"{avg_days_loss:.1f} Days")
-        with k8: st.metric("Progressive Exposure Streak", streak_label)
+        with k8: 
+            exp_sign = "+" if expectancy_inr > 0 else "-" if expectancy_inr < 0 else ""
+            st.metric("Expectancy (Per Setup)", f"{exp_sign}₹{abs(expectancy_inr):,.0f}", f"Edge: {'🟢 Positive' if expectancy_inr > 0 else '🔴 Negative' if expectancy_inr < 0 else '⚪ Neutral'}")
+        with k9: st.metric("Progressive Exposure Streak", streak_label)
 
         # --- TRADING PERFORMANCE VISUAL CALENDAR ---
         st.markdown("---")
