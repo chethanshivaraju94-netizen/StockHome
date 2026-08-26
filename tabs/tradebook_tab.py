@@ -892,9 +892,9 @@ def render_tradebook_tab():
         all_closed_lots = [t for t in processed_trade_rows if t["Shares Sold"] > 0]
         
         if all_closed_lots:
-            df_perf = pd.DataFrame(all_closed_lots)
-            df_perf["Date_DT"] = pd.to_datetime(df_perf["Date Sold"], errors="coerce")
-            df_perf = df_perf.dropna(subset=["Date_DT"]).sort_values(by="Date_DT", ascending=True)
+            df_perf_raw = pd.DataFrame(all_closed_lots)
+            df_perf_raw["Date_DT"] = pd.to_datetime(df_perf_raw["Date Sold"], errors="coerce")
+            df_perf_raw = df_perf_raw.dropna(subset=["Date_DT"])
 
             def get_holding_days(row):
                 try:
@@ -904,9 +904,25 @@ def render_tradebook_tab():
                 except Exception:
                     return 1
 
-            df_perf["Holding_Days"] = df_perf.apply(get_holding_days, axis=1)
-            df_perf["Year"] = df_perf["Date_DT"].dt.year
-            df_perf["Month"] = df_perf["Date_DT"].dt.month
+            df_perf_raw["Holding_Days"] = df_perf_raw.apply(get_holding_days, axis=1)
+            df_perf_raw["Year"] = df_perf_raw["Date_DT"].dt.year
+            df_perf_raw["Month"] = df_perf_raw["Date_DT"].dt.month
+
+            # --- SETUP-AWARE MONTHLY AGGREGATION ---
+            def weighted_abs_return(group):
+                cap = group["Capital Invested (₹)"]
+                ret = group["Abs Return %"]
+                if cap.sum() > 0:
+                    return (ret * cap).sum() / cap.sum()
+                return ret.mean()
+
+            df_perf = df_perf_raw.groupby(["Signature", "Year", "Month"]).apply(lambda g: pd.Series({
+                "Date_DT": g["Date_DT"].max(),
+                "Realised Gains (₹)": g["Realised Gains (₹)"].sum(),
+                "Abs Return %": weighted_abs_return(g),
+                "Realized R Num": g["Realized R Num"].sum(),
+                "Holding_Days": g["Holding_Days"].max()
+            })).reset_index().sort_values(by="Date_DT", ascending=True)
 
             # 1. Multi-Year Monthly P&L Matrix
             all_years = sorted(df_perf["Year"].unique().tolist(), reverse=True)
