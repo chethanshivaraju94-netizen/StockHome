@@ -466,12 +466,10 @@ def render_tradebook_tab():
     # =========================================================================
     # 🕒 AUTOMATIC FRIDAY MARKET-CLOSE BACKUP TRIGGER
     # =========================================================================
-    # IST is UTC+5:30
     ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     current_iso_week = f"{ist_now.year}-W{ist_now.isocalendar()[1]}"
     last_sent_week = tb_data.get("config", {}).get("last_backup_week", "")
 
-    # Trigger on Friday (weekday 4) after 15:30 IST
     if ist_now.weekday() == 4 and (ist_now.hour > 15 or (ist_now.hour == 15 and ist_now.minute >= 30)):
         if last_sent_week != current_iso_week and not df_tb_display.empty:
             ok, _ = send_tradebook_backup_email(df_tb_display, tb_data, starting_cap, total_portfolio_nav, realized_pnl_total, overall_wr)
@@ -509,11 +507,16 @@ def render_tradebook_tab():
         wl_tickers = st.session_state.watchlists.get(active_wl, [])
         st.caption(f"📍 Populating tickers strictly from active watchlist: **{active_wl}**")
 
-        with st.form("buy_trade_form", clear_on_submit=True):
-            sel_ticker = st.selectbox("Select Ticker from Active Watchlist:", options=wl_tickers)
-            custom_ticker = st.text_input("OR Type Custom Ticker (e.g. NSE:BEL):", placeholder="NSE:BEL")
-            final_ticker = custom_ticker.strip().upper() if custom_ticker.strip() else sel_ticker
+        sel_ticker = st.selectbox("Select Ticker from Active Watchlist:", options=wl_tickers, key="buy_modal_select_ticker")
+        custom_ticker = st.text_input("OR Type Custom Ticker (e.g. NSE:BEL):", placeholder="NSE:BEL", key="buy_modal_custom_ticker")
+        final_ticker = custom_ticker.strip().upper() if custom_ticker.strip() else sel_ticker
 
+        # Fetch stored catalyst to auto-prefill notes
+        clean_key = final_ticker.split(":")[-1].strip().upper() if final_ticker else ""
+        cached_catalyst = st.session_state.get("catalyst_reports", {}).get(clean_key, {}).get("report_md", "")
+        auto_prefill_notes = f"--- 🚀 AI Catalyst Report ---\n{cached_catalyst}\n----------------------------" if cached_catalyst else ""
+
+        with st.form("buy_trade_form", clear_on_submit=True):
             b_date = st.date_input("Date Bought:", value=date.today())
             
             b_shares = st.number_input("Shares Bought:", min_value=1, value=1, step=1)
@@ -521,7 +524,7 @@ def render_tradebook_tab():
             b_sl = st.number_input("Initial Stop Loss Price (₹):", min_value=0.0, value=0.0, step=1.0)
 
             entry_chart_url = st.text_input("Entry Chart Image URL(s) (Optional):", placeholder="Paste TradingView image link(s)...")
-            trade_notes = st.text_area("Trade Notes & Thesis (Optional):", placeholder="Why are you taking this setup? What is the trigger?")
+            trade_notes = st.text_area("Trade Notes & Thesis:", value=auto_prefill_notes, placeholder="Why are you taking this setup? What is the trigger?")
 
             outlay = b_shares * b_price
             risk_amount = b_shares * (b_price - b_sl)
@@ -1131,7 +1134,6 @@ def render_tradebook_tab():
         )
 
         # 2. Evaluate Completed / Tested Setups for Win Rate & Payoff
-        # A setup is evaluated if it is 100% closed OR has realized partial gains
         evaluated_setups = [
             s for s in all_setups_chronological
             if (not s["is_open"]) or (s["shares_sold"] > 0)
@@ -1171,11 +1173,9 @@ def render_tradebook_tab():
             last_outcome = None
 
             for s in all_setups_chronological:
-                # Determine if setup gave positive traction
                 is_working = (s["total_ret_inr"] > 0) or (s["realized_gains"] > 0)
                 is_failed = (s["total_ret_inr"] <= 0) and (not s["is_open"])
 
-                # Skip completely untested, freshly opened break-even positions
                 if not is_working and not is_failed:
                     continue
 
@@ -1198,7 +1198,6 @@ def render_tradebook_tab():
                 if streak_count >= 3:
                     streak_label += " (⚠️ Cut Size 50%)"
 
-            # Calculate average holding days for completed portions
             closed_lots = [t for t in processed_trade_rows if t["raw_status"] == "CLOSED"]
             def calc_days(t):
                 try:
