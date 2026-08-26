@@ -11,7 +11,12 @@ import markdown
 import requests
 import streamlit as st
 import yfinance as yf
-from modules.state import save_fundamental_reports, save_market_briefings, save_tradebook
+from modules.state import (
+    save_fundamental_reports,
+    save_market_briefings,
+    save_tradebook,
+    save_catalyst_reports
+)
 
 
 # ==========================================
@@ -787,7 +792,16 @@ If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable p
         )
         if status_log:
             status_log.write("✅ Comprehensive Catalyst Scan Complete!")
-        return response.text, aggregated_news
+            
+        report_text = response.text
+        
+        # 1. Store persistent watchlist catalyst cards
+        store_watchlist_catalysts(report_text)
+        
+        # 2. Sync to any open tradebook positions automatically
+        sync_catalysts_to_tradebook_notes(report_text)
+        
+        return report_text, aggregated_news
     except Exception as e:
         if status_log:
             status_log.error(f"❌ AI Analysis failed: {e}")
@@ -795,8 +809,31 @@ If NO tickers in the feed have actionable catalysts, state: "⚪ No actionable p
 
 
 # ==========================================
-# 6. CATALYST TRADEBOOK SYNC ENGINE
+# 6. WATCHLIST CATALYST VAULT & SYNC ENGINES
 # ==========================================
+def store_watchlist_catalysts(catalyst_markdown_text):
+    """Parses catalyst markdown and stores entries in st.session_state.catalyst_reports."""
+    if not catalyst_markdown_text or "No actionable pre-market catalysts" in catalyst_markdown_text:
+        return {}
+
+    pattern = r"###\s+([A-Za-z0-9_:\.]+)\s*\n(.*?)(?=\n###\s+[A-Za-z0-9_:\.]+|\Z)"
+    matches = re.findall(pattern, catalyst_markdown_text, re.DOTALL)
+
+    if "catalyst_reports" not in st.session_state:
+        st.session_state.catalyst_reports = {}
+
+    today_str = time.strftime("%Y-%m-%d")
+    for raw_ticker, content in matches:
+        clean_key = raw_ticker.split(":")[-1].strip().upper()
+        st.session_state.catalyst_reports[clean_key] = {
+            "date": today_str,
+            "report_md": content.strip()
+        }
+    
+    save_catalyst_reports(st.session_state.catalyst_reports)
+    return st.session_state.catalyst_reports
+
+
 def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
     """
     Parses AI catalyst markdown by ticker and saves/overwrites the catalyst
@@ -808,7 +845,6 @@ def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
     if "tradebook" not in st.session_state or "trades" not in st.session_state.tradebook:
         return 0
 
-    # 1. Parse markdown into dictionary: {TICKER: CATALYST_TEXT}
     pattern = r"###\s+([A-Za-z0-9_:\.]+)\s*\n(.*?)(?=\n###\s+[A-Za-z0-9_:\.]+|\Z)"
     matches = re.findall(pattern, catalyst_markdown_text, re.DOTALL)
 
@@ -824,7 +860,6 @@ def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
     trades = st.session_state.tradebook.get("trades", [])
 
     for tr in trades:
-        # We only want to update OPEN positions 
         if tr.get("status") != "OPEN":
             continue
             
@@ -839,7 +874,6 @@ def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
 
             current_notes = tr.get("trade_notes", "") or ""
 
-            # Check if an existing catalyst report exists and cleanly replace it
             catalyst_tag_pattern = r"\n*--- 🚀 AI Catalyst Report ---.*?----------------------------"
             if re.search(catalyst_tag_pattern, current_notes, re.DOTALL):
                 updated_notes = re.sub(catalyst_tag_pattern, new_catalyst_section, current_notes, flags=re.DOTALL)
@@ -853,3 +887,19 @@ def sync_catalysts_to_tradebook_notes(catalyst_markdown_text):
         save_tradebook(st.session_state.tradebook)
 
     return updated_count
+
+
+@st.dialog("🚀 Catalyst Conviction Card", width="large")
+def show_catalyst_modal(ticker_symbol):
+    """Quick modal dialog to read stored catalyst notes for any watchlist stock."""
+    clean_sym = ticker_symbol.split(":")[-1].strip().upper() if ":" in str(ticker_symbol) else str(ticker_symbol).strip().upper()
+    cat_vault = st.session_state.get("catalyst_reports", {})
+    entry = cat_vault.get(clean_sym)
+
+    if not entry:
+        st.info(f"No catalyst report saved for **{clean_sym}**. Run 'Scan Overnight Catalysts' in the scanner.")
+    else:
+        st.subheader(f"💎 {clean_sym} Catalyst Breakdown")
+        st.caption(f"📅 Scanned Date: **{entry.get('date', 'N/A')}**")
+        st.markdown("---")
+        st.markdown(entry.get("report_md", ""))
