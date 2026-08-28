@@ -262,13 +262,15 @@ def render_screener_tab():
                 pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=st.session_state.get("f_pat_flag", True), disabled=not en_patterns)
 
             st.caption("🔹 **Geometric Breakouts & Regression (Phase 2):**")
-            col_g1, col_g2, col_g3 = st.columns(3)
+            col_g1, col_g2, col_g3, col_g4 = st.columns(4)
             with col_g1:
                 pat_asc_tri = st.checkbox("📐 Ascending Triangle", value=st.session_state.get("f_pat_asc_tri", True), disabled=not en_patterns)
             with col_g2:
                 pat_desc_tri = st.checkbox("🔻 Descending Triangle", value=st.session_state.get("f_pat_desc_tri", False), disabled=not en_patterns)
             with col_g3:
                 pat_sym_tri = st.checkbox("🔷 Symmetrical Triangle", value=st.session_state.get("f_pat_sym_tri", True), disabled=not en_patterns)
+            with col_g4:
+                pat_cup = st.checkbox("☕ Cup & Handle", value=st.session_state.get("f_pat_cup", True), disabled=not en_patterns)
 
         pat_config = {
             "inside": pat_inside,
@@ -277,6 +279,7 @@ def render_screener_tab():
             "asc_tri": pat_asc_tri,
             "desc_tri": pat_desc_tri,
             "sym_tri": pat_sym_tri,
+            "cup": pat_cup,
         }
 
         if en_patterns and not df.empty and (any(pat_config.values()) or combo_mode == "Require Inside Bar INSIDE a Base"):
