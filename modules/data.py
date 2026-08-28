@@ -229,12 +229,11 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
         pass
     return 23700.0
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     """
-    Bulletproof Yahoo Finance extraction using group_by='ticker' to 
-    prevent multi-index parsing errors across different yfinance versions.
-    TTL is reduced to 5 mins to prevent storing an empty DF if rate-limited.
+    Cached bulk download of historical OHLCV data for pattern geometry detection.
+    Splits requests into chunks of 50 to prevent Yahoo Finance from blocking massive requests.
     """
     tickers = []
     sym_map = {}
@@ -244,29 +243,43 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
         tickers.append(yf_t)
         sym_map[yf_t] = s
         
-    if not tickers:
-        return {}, sym_map
-        
-    data = yf.download(tickers, period=period, group_by='ticker', progress=False)
     data_dict = {}
-    
-    if data.empty:
+    if not tickers:
         return data_dict, sym_map
-
-    # Safely extract regardless of whether it's 1 ticker or 500 tickers
-    if len(tickers) == 1:
-        df_t = data.dropna(how='all')
-        if not df_t.empty:
-            data_dict[tickers[0]] = df_t
-    else:
-        for t in tickers:
-            try:
-                # When group_by='ticker', top level is the ticker name
-                if t in data.columns.get_level_values(0):
-                    df_t = data[t].dropna(how='all')
-                    if not df_t.empty:
-                        data_dict[t] = df_t
-            except Exception:
-                pass
+        
+    # Chunk the requests into batches of 50 to bypass Yahoo Finance URL length limits
+    chunk_size = 50
+    for i in range(0, len(tickers), chunk_size):
+        chunk = tickers[i:i + chunk_size]
+        try:
+            # Download without group_by to ensure the column structure remains consistent
+            data = yf.download(chunk, period=period, progress=False, threads=True)
+            if data.empty:
+                continue
                 
+            # If only 1 ticker in the chunk, yfinance returns a flat dataframe
+            if len(chunk) == 1:
+                df_t = data.dropna(how='all')
+                if not df_t.empty:
+                    data_dict[chunk[0]] = df_t
+            
+            # If >1 ticker, yfinance returns a MultiIndex dataframe
+            elif isinstance(data.columns, pd.MultiIndex):
+                for t in chunk:
+                    try:
+                        if t in data.columns.get_level_values(1):
+                            df_t = pd.DataFrame()
+                            if 'Close' in data: df_t['Close'] = data['Close'][t]
+                            if 'High' in data: df_t['High'] = data['High'][t]
+                            if 'Low' in data: df_t['Low'] = data['Low'][t]
+                            if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
+                            
+                            df_t = df_t.dropna(how='all')
+                            if not df_t.empty:
+                                data_dict[t] = df_t
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+            
     return data_dict, sym_map
