@@ -229,15 +229,15 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
         pass
     return 23700.0
 
-# --- PATTERN ENGINE HISTORICAL FETCHER ---
-def fetch_historical_data_yf(symbols, period="6mo"):
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     """
-    Bulk downloads historical OHLCV data for pattern geometry detection via yfinance.
-    Returns a dictionary of dataframes mapped to each yfinance ticker.
+    Cached bulk download of historical OHLCV data for pattern geometry detection.
+    ttl=900 means it stores the heavy download in memory for 15 minutes.
     """
     tickers = []
     sym_map = {}
-    for s in symbols:
+    for s in symbols_tuple:
         clean = str(s).split(":")[-1].strip().upper()
         yf_t = f"{clean}.BO" if "BSE" in str(s).upper() else f"{clean}.NS"
         tickers.append(yf_t)
@@ -246,7 +246,6 @@ def fetch_historical_data_yf(symbols, period="6mo"):
     if not tickers:
         return {}, sym_map
         
-    # Removed show_errors=False and threads=True to ensure compatibility with all yfinance versions
     data = yf.download(tickers, period=period, progress=False)
     
     data_dict = {}
