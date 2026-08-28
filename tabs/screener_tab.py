@@ -240,24 +240,34 @@ def render_screener_tab():
         st.markdown("---")
         with st.expander("📐 Phase 1 Pattern Recognition Engine (Dan Zanger / Minervini)", expanded=False):
             st.markdown("Filter the above fundamentally strong candidates using multi-pivot geometric regression and volume dry-up analysis.")
-            col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
-            with col_p1:
-                en_patterns = st.checkbox("Enable Pattern Engine", value=False)
+            
+            c_en, c_mode = st.columns([1, 2])
+            with c_en:
+                en_patterns = st.checkbox("Enable Pattern Engine", value=st.session_state.get("f_en_patterns", False))
+            with c_mode:
+                combo_mode = st.selectbox(
+                    "Match Logic:", 
+                    options=["Match ANY Selected Pattern", "Require Inside Bar INSIDE a Base"],
+                    disabled=not en_patterns,
+                    label_visibility="collapsed"
+                )
+
+            col_p2, col_p3, col_p4, col_p5 = st.columns(4)
             with col_p2:
-                pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=True, disabled=not en_patterns)
+                pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=st.session_state.get("f_pat_inside", True), disabled=not en_patterns)
             with col_p3:
-                pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=True, disabled=not en_patterns)
+                pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=st.session_state.get("f_pat_flat", True), disabled=not en_patterns)
             with col_p4:
-                pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=True, disabled=not en_patterns)
+                pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=st.session_state.get("f_pat_flag", True), disabled=not en_patterns)
             with col_p5:
-                pat_vcp = st.checkbox("🌪️ Volatility Contraction (VCP)", value=True, disabled=not en_patterns)
+                pat_vcp = st.checkbox("🌪️ Volatility Contraction (VCP)", value=st.session_state.get("f_pat_vcp", True), disabled=not en_patterns)
 
         pat_config = {"inside": pat_inside, "flat": pat_flat, "flag": pat_flag, "vcp": pat_vcp}
 
         if en_patterns and not df.empty and any(pat_config.values()):
-            with st.spinner("📐 Fetching historical OHLCV data & Running Geometric Engine..."):
+            with st.spinner("📐 Reading cached OHLCV data & Running Geometric Engine..."):
                 from modules.patterns import run_pattern_engine
-                df = run_pattern_engine(df, pat_config)
+                df = run_pattern_engine(df, pat_config, combo_mode)
                 
             if df.empty:
                 st.warning("No stocks passed the selected geometric pattern filters. Try turning off pattern screening or selecting different patterns.")
