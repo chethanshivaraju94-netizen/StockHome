@@ -3,7 +3,7 @@ import numpy as np
 
 def detect_inside_bar(df):
     """Inside bar with daily range strictly less than ATR14, and volume <= 50 SMA."""
-    if len(df) < 15: return False
+    if len(df) < 10: return False
     h = df['High']
     l = df['Low']
     c = df['Close']
@@ -14,18 +14,18 @@ def detect_inside_bar(df):
         tr2 = (h - c.shift(1)).abs()
         tr3 = (l - c.shift(1)).abs()
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr14 = tr.rolling(14).mean().iloc[-1]
+        atr14 = tr.rolling(14, min_periods=5).mean().iloc[-1]
         rng = h.iloc[-1] - l.iloc[-1]
         
         if rng < atr14:
-            vol_sma50 = v.rolling(50, min_periods=20).mean().iloc[-1]
+            vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
             if v.iloc[-1] <= vol_sma50:
                 return True
     return False
 
 def detect_flat_base(df):
-    """10 to 25 bars constrained within a tight 15% band with Volume Dry Up."""
-    if len(df) < 50: return False
+    """10+ bars constrained within a tight 15% band with Volume Dry Up."""
+    if len(df) < 20: return False
     h = df['High']
     l = df['Low']
     v = df['Volume']
@@ -38,14 +38,14 @@ def detect_flat_base(df):
     
     if min_l > 0 and (max_h - min_l) / min_l <= 0.15:
         avg_vol_5 = v.iloc[-5:].mean()
-        vol_sma50 = v.rolling(50, min_periods=20).mean().iloc[-1]
+        vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
         if avg_vol_5 <= vol_sma50 * 1.1:
             return True
     return False
 
 def detect_bull_flag(df):
     """Sharp pole >= 20% followed by tight retracement <= 38.2%."""
-    if len(df) < 40: return False
+    if len(df) < 25: return False
     h = df['High']
     l = df['Low']
     v = df['Volume']
@@ -69,13 +69,13 @@ def detect_bull_flag(df):
             if ret_pct <= 0.382:
                 vol_pole = v.loc[:pole_top_idx].iloc[-10:].mean()
                 vol_flag = v.loc[pole_top_idx:].mean()
-                if vol_flag <= vol_pole * 0.75:
+                if vol_flag <= vol_pole * 0.85: # 15% drop in volume required
                     return True
     return False
 
 def detect_vcp(df):
-    """Segment-based Depth Contraction: Left side is wide, right side tightens to <= 8%."""
-    if len(df) < 60: return False
+    """Segment-based Depth Contraction: Left side is wide, right side tightens."""
+    if len(df) < 45: return False
     h = df['High'].iloc[-60:]
     l = df['Low'].iloc[-60:]
     c = df['Close'].iloc[-60:]
@@ -84,9 +84,11 @@ def detect_vcp(df):
     base_high = h.max()
     curr_close = c.iloc[-1]
     
+    # Must be trading near the top of the base (within 15%)
     if base_high <= 0 or (base_high - curr_close) / base_high > 0.15:
         return False
         
+    # Split the base into 3 segments to check for volatility decreasing left-to-right
     seg1_h = h.iloc[:20].max()
     seg1_l = l.iloc[:20].min()
     d1 = (seg1_h - seg1_l) / seg1_h if seg1_h > 0 else 0
@@ -99,9 +101,11 @@ def detect_vcp(df):
     seg3_l = l.iloc[40:].min()
     d3 = (seg3_h - seg3_l) / seg3_h if seg3_h > 0 else 0
     
-    if max(d1, d2) >= 0.08 and d3 <= 0.08:
-        if d2 <= d1 * 1.15 and d3 <= d2 * 1.15:
-            vol_sma50 = v.rolling(50, min_periods=20).mean().iloc[-1]
+    # Minervini VCP Rule: Left side must be loose (>=6%), right side must be tight (<=10%)
+    if max(d1, d2) >= 0.06 and d3 <= 0.10:
+        # Successive contraction check (allow 25% margin of error for market noise)
+        if d2 <= d1 * 1.25 and d3 <= max(d2, 0.04) * 1.25:
+            vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
             if v.iloc[-5:].mean() <= vol_sma50 * 1.2:
                 return True
     return False
