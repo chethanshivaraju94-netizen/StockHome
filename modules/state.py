@@ -19,7 +19,6 @@ GIST_ID = st.secrets.get("GIST_ID", None)
 
 @st.cache_resource
 def get_db():
-    """Securely connects to Google Firestore using Streamlit Secrets."""
     if "firebase" in st.secrets:
         try:
             firebase_secrets = dict(st.secrets["firebase"])
@@ -40,7 +39,6 @@ def get_db():
 
 
 def fetch_from_gist(filename):
-    """Fetches data from GitHub Gist for seamless one-time migration."""
     if GITHUB_TOKEN and GIST_ID:
         try:
             headers = {
@@ -60,10 +58,8 @@ def fetch_from_gist(filename):
 
 
 def load_data_from_db(doc_name, filename, default_data):
-    """Loads from Firestore. If empty, migrates automatically from Gist or local disk."""
     db = get_db()
     
-    # 1. Read from Firestore
     if db:
         try:
             doc_ref = db.collection("stockhome_data").document(doc_name)
@@ -74,7 +70,6 @@ def load_data_from_db(doc_name, filename, default_data):
         except Exception as e:
             st.warning(f"Error reading {doc_name} from Firestore: {e}")
 
-    # 2. Auto-Migrate from GitHub Gist if Firestore is not yet populated
     gist_data = fetch_from_gist(filename)
     if gist_data is not None:
         if db:
@@ -84,7 +79,6 @@ def load_data_from_db(doc_name, filename, default_data):
                 pass
         return gist_data
 
-    # 3. Fallback to local disk
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f:
@@ -102,7 +96,6 @@ def load_data_from_db(doc_name, filename, default_data):
 
 
 def save_data_to_db(doc_name, data_dict, filename):
-    """Persists data to Firestore and saves a local disk backup."""
     try:
         with open(filename, "w") as f:
             json.dump(data_dict, f, indent=2)
@@ -177,7 +170,7 @@ def load_filter_presets():
                 c: {"en": False, "val": 0.0}
                 for c in ["Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.YTD", "Perf.Y"]
             },
-            # --- PATTERN RECOGNITION PRESETS (PHASE 1 & 2) ---
+            # --- PATTERN RECOGNITION PRESETS ---
             "en_patterns": False,
             "pat_inside": True,
             "pat_flat": True,
@@ -185,8 +178,6 @@ def load_filter_presets():
             "pat_asc_tri": True,
             "pat_desc_tri": False,
             "pat_sym_tri": True,
-            "pat_wedge": True,
-            "pat_channel": False,
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
