@@ -178,6 +178,7 @@ def load_filter_presets():
             "pat_asc_tri": True,
             "pat_desc_tri": False,
             "pat_sym_tri": True,
+            "pat_cup": True,
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
