@@ -1,5 +1,6 @@
 import io
 import os
+import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -230,11 +231,10 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
     return 23700.0
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf(symbols_tuple, period="6mo"):
+def fetch_historical_data_yf_v2(symbols_tuple, period="6mo"):
     """
-    Cached bulk download of historical OHLCV data for pattern geometry detection.
-    Splits requests into chunks of 75 to prevent Yahoo Finance from blocking massive requests.
-    Uses .xs() logic to guarantee accurate column extraction on all yfinance versions.
+    V2: Renamed to bust the poisoned Streamlit cache. 
+    Drops threads=True and adds a stealth sleep delay to bypass Yahoo's strict rate limits.
     """
     tickers = []
     sym_map = {}
@@ -248,26 +248,22 @@ def fetch_historical_data_yf(symbols_tuple, period="6mo"):
     if not tickers:
         return data_dict, sym_map
         
-    # Safe chunk size to avoid URI Too Long error
-    chunk_size = 75
+    chunk_size = 40 # Smaller chunk to stay under radar
     for i in range(0, len(tickers), chunk_size):
         chunk = tickers[i:i + chunk_size]
         try:
-            data = yf.download(chunk, period=period, progress=False, threads=True)
+            # threads=False prevents aggressive parallel connections from triggering a ban
+            data = yf.download(chunk, period=period, progress=False, threads=False)
             if data.empty:
                 continue
             
-            # Single ticker returns a simple dataframe
             if len(chunk) == 1:
                 df_t = data.dropna(how='all')
                 if not df_t.empty:
                     data_dict[chunk[0]] = df_t
             
-            # Multiple tickers return a MultiIndex dataframe
             elif isinstance(data.columns, pd.MultiIndex):
-                # Dynamically determine which index level holds the ticker symbols
                 level_with_tickers = 1 if chunk[0] in data.columns.get_level_values(1) else 0
-                
                 for t in chunk:
                     try:
                         if level_with_tickers == 1 and t in data.columns.get_level_values(1):
@@ -283,5 +279,8 @@ def fetch_historical_data_yf(symbols_tuple, period="6mo"):
                         pass
         except Exception:
             pass
+            
+        # Stealth delay to avoid DDoS flags
+        time.sleep(0.5) 
             
     return data_dict, sym_map
