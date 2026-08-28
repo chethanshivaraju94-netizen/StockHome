@@ -234,6 +234,7 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     """
     Cached bulk download of historical OHLCV data for pattern geometry detection.
     ttl=900 means it stores the heavy download in memory for 15 minutes.
+    Uses indestructible MultiIndex parsing.
     """
     tickers = []
     sym_map = {}
@@ -247,27 +248,30 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
         return {}, sym_map
         
     data = yf.download(tickers, period=period, progress=False)
-    
     data_dict = {}
+    
     if data.empty:
         return data_dict, sym_map
 
-    if len(tickers) == 1:
-        data_dict[tickers[0]] = data.dropna(how='all')
-    else:
+    # Indestructible Parser: Handles both Single Index (1 ticker) and MultiIndex (N tickers)
+    if isinstance(data.columns, pd.MultiIndex):
         for t in tickers:
             try:
-                # Bulletproof extraction to avoid multi-index version issues
-                df_t = pd.DataFrame()
-                if 'Close' in data: df_t['Close'] = data['Close'][t]
-                if 'High' in data: df_t['High'] = data['High'][t]
-                if 'Low' in data: df_t['Low'] = data['Low'][t]
-                if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
-                
-                df_t = df_t.dropna(how='all')
-                if not df_t.empty:
-                    data_dict[t] = df_t
+                # Check if Ticker is level 0 or level 1
+                if t in data.columns.get_level_values(0):
+                    df_t = data[t].copy()
+                    df_t = df_t.dropna(how='all')
+                    if not df_t.empty:
+                        data_dict[t] = df_t
+                elif t in data.columns.get_level_values(1):
+                    df_t = data.xs(t, level=1, axis=1).copy()
+                    df_t = df_t.dropna(how='all')
+                    if not df_t.empty:
+                        data_dict[t] = df_t
             except Exception:
                 pass
+    else:
+        # Single ticker fallback
+        data_dict[tickers[0]] = data.dropna(how='all')
                 
     return data_dict, sym_map
