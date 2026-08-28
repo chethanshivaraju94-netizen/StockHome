@@ -234,9 +234,35 @@ def render_screener_tab():
             df = df[~df["_is_circuit_excluded"] & ~is_full_day_freeze]
             df = df.drop(columns=["_is_circuit_excluded"])
 
-        if df.empty:
-            st.warning("No stocks passed all criteria. Try broadening your NSE Sector/Industry selections or RS Rating slider.")
-        else:
+        # =========================================================
+        # 📐 PHASE 1: INSTITUTIONAL PATTERN RECOGNITION ENGINE
+        # =========================================================
+        st.markdown("---")
+        with st.expander("📐 Phase 1 Pattern Recognition Engine (Dan Zanger / Minervini)", expanded=False):
+            st.markdown("Filter the above fundamentally strong candidates using multi-pivot geometric regression and volume dry-up analysis.")
+            col_p1, col_p2, col_p3, col_p4, col_p5 = st.columns(5)
+            with col_p1:
+                en_patterns = st.checkbox("Enable Pattern Engine", value=False)
+            with col_p2:
+                pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=True, disabled=not en_patterns)
+            with col_p3:
+                pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=True, disabled=not en_patterns)
+            with col_p4:
+                pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=True, disabled=not en_patterns)
+            with col_p5:
+                pat_vcp = st.checkbox("🌪️ Volatility Contraction (VCP)", value=True, disabled=not en_patterns)
+
+        pat_config = {"inside": pat_inside, "flat": pat_flat, "flag": pat_flag, "vcp": pat_vcp}
+
+        if en_patterns and not df.empty and any(pat_config.values()):
+            with st.spinner("📐 Fetching historical OHLCV data & Running Geometric Engine..."):
+                from modules.patterns import run_pattern_engine
+                df = run_pattern_engine(df, pat_config)
+                
+            if df.empty:
+                st.warning("No stocks passed the selected geometric pattern filters. Try turning off pattern screening or selecting different patterns.")
+
+        if not df.empty:
             total_passed = len(df)
             rc = st.session_state.reset_counter
 
@@ -425,6 +451,9 @@ def render_screener_tab():
                 + active_perf_labels + active_ma_labels
                 + [vol_display_label, "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
             )
+            
+            if en_patterns and "Detected_Pattern" in df_display.columns:
+                table_columns.insert(5, "Detected_Pattern")
 
             sc = st.session_state.scan_sel_counter
             wl_names = list(st.session_state.watchlists.keys())
