@@ -182,7 +182,6 @@ def load_filter_presets():
             "pat_inside": True,
             "pat_flat": True,
             "pat_flag": True,
-            "pat_vcp": True,
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
