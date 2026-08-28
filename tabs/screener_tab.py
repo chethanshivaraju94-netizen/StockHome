@@ -235,11 +235,11 @@ def render_screener_tab():
             df = df.drop(columns=["_is_circuit_excluded"])
 
         # =========================================================
-        # 📐 PHASE 1: INSTITUTIONAL PATTERN RECOGNITION ENGINE
+        # 📐 QUANTITATIVE PATTERN RECOGNITION ENGINE (PHASE 1 & 2)
         # =========================================================
         st.markdown("---")
-        with st.expander("📐 Phase 1 Pattern Recognition Engine (Dan Zanger / Minervini)", expanded=False):
-            st.markdown("Filter the above fundamentally strong candidates using multi-pivot geometric regression and volume dry-up analysis.")
+        with st.expander("📐 Quantitative Pattern Recognition Engine (Dan Zanger / Minervini)", expanded=False):
+            st.markdown("Filter candidates via multi-pivot linear regression, apex convergence, and volume dry-up analysis.")
             
             c_en, c_mode = st.columns([1, 2])
             with c_en:
@@ -252,15 +252,38 @@ def render_screener_tab():
                     label_visibility="collapsed"
                 )
 
-            col_p2, col_p3, col_p4 = st.columns(3)
-            with col_p2:
+            st.caption("🔹 **Contraction Setups (Phase 1):**")
+            col_p1, col_p2, col_p3 = st.columns(3)
+            with col_p1:
                 pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=st.session_state.get("f_pat_inside", True), disabled=not en_patterns)
-            with col_p3:
+            with col_p2:
                 pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=st.session_state.get("f_pat_flat", True), disabled=not en_patterns)
-            with col_p4:
+            with col_p3:
                 pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=st.session_state.get("f_pat_flag", True), disabled=not en_patterns)
 
-        pat_config = {"inside": pat_inside, "flat": pat_flat, "flag": pat_flag}
+            st.caption("🔹 **Geometric Breakouts & Regression (Phase 2):**")
+            col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns(5)
+            with col_g1:
+                pat_asc_tri = st.checkbox("📐 Ascending Triangle", value=st.session_state.get("f_pat_asc_tri", True), disabled=not en_patterns)
+            with col_g2:
+                pat_desc_tri = st.checkbox("🔻 Descending Triangle", value=st.session_state.get("f_pat_desc_tri", False), disabled=not en_patterns)
+            with col_g3:
+                pat_sym_tri = st.checkbox("🔷 Symmetrical Triangle", value=st.session_state.get("f_pat_sym_tri", True), disabled=not en_patterns)
+            with col_g4:
+                pat_wedge = st.checkbox("📉 Falling Wedge", value=st.session_state.get("f_pat_wedge", True), disabled=not en_patterns)
+            with col_g5:
+                pat_channel = st.checkbox("📊 Price Channels", value=st.session_state.get("f_pat_channel", False), disabled=not en_patterns)
+
+        pat_config = {
+            "inside": pat_inside,
+            "flat": pat_flat,
+            "flag": pat_flag,
+            "asc_tri": pat_asc_tri,
+            "desc_tri": pat_desc_tri,
+            "sym_tri": pat_sym_tri,
+            "wedge": pat_wedge,
+            "channel": pat_channel,
+        }
 
         if en_patterns and not df.empty and (any(pat_config.values()) or combo_mode == "Require Inside Bar INSIDE a Base"):
             with st.spinner("📐 Reading cached OHLCV data & Running Geometric Engine..."):
@@ -274,8 +297,7 @@ def render_screener_tab():
             total_passed = len(df)
             rc = st.session_state.reset_counter
 
-            # --- ROBUST SESSION STATE EXTRACTION TO FIX HIDDEN TAB BUG ---
-            # 1. Prepare Sector Data
+            # --- ROBUST SESSION STATE EXTRACTION ---
             sec_counts = df["Sector"].value_counts().reset_index()
             sec_counts.columns = ["Sector", "Stocks Passed"]
             sec_counts["% Share"] = ((sec_counts["Stocks Passed"] / total_passed) * 100).round(1)
@@ -283,7 +305,6 @@ def render_screener_tab():
                 lambda r: round((r["Stocks Passed"] / total_sector_counts.get(r["Sector"], 1)) * 100, 1), axis=1
             )
             
-            # 2. Extract Sector Selection Safely
             active_sectors = []
             sec_table_state = st.session_state.get(f"sec_table_{rc}")
             if sec_table_state and isinstance(sec_table_state, dict):
@@ -299,7 +320,6 @@ def render_screener_tab():
                         extracted = [p.get("label", "") for p in pts if "label" in p]
                         active_sectors = [s for s in extracted if s in sec_counts["Sector"].values]
 
-            # 3. Prepare Industry Data
             if active_sectors:
                 df_ind_source = df[df["Sector"].isin(active_sectors)]
                 ind_total_passed = len(df_ind_source)
@@ -316,7 +336,6 @@ def render_screener_tab():
 
             sec_hash = "_".join(sorted(active_sectors)) if active_sectors else "all"
 
-            # 4. Extract Industry Selection Safely
             active_industries = []
             ind_table_state = st.session_state.get(f"ind_table_{rc}_{sec_hash}")
             if ind_table_state and isinstance(ind_table_state, dict):
@@ -540,7 +559,7 @@ def render_screener_tab():
 
             total_before_slice = len(df_display)
 
-            # Apply Cross-Metric Momentum Exclusions (Background calculation)
+            # Apply Cross-Metric Momentum Exclusions
             if en_top_pct and total_before_slice > 0 and cross_metric_exc:
                 num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
                 cross_exclude_symbols = set()
@@ -560,7 +579,7 @@ def render_screener_tab():
                 df_display[temp_col] = pd.to_numeric(df_display[sort_by], errors="coerce")
                 df_display = df_display.sort_values(by=temp_col, ascending=sort_asc, na_position="last").drop(columns=[temp_col])
 
-            # Apply Top % Slicing to the remaining pool
+            # Apply Top % Slicing
             if en_top_pct and total_before_slice > 0:
                 num_to_keep = max(1, int(math.ceil(total_before_slice * (top_pct_val / 100.0))))
                 df_display = df_display.head(num_to_keep)
@@ -568,7 +587,6 @@ def render_screener_tab():
             else:
                 results_heading = f"📋 Scan Results ({len(df_display)} Stocks Found)"
 
-            # Assign sequential S.No. post-sorting & slicing
             df_display["S.No._num"] = range(1, len(df_display) + 1)
             df_display["S.No."] = df_display.apply(lambda r: f"{r['S.No._num']} {r['WL_Dots']}".strip() if r["WL_Dots"] else str(r["S.No._num"]), axis=1)
 
