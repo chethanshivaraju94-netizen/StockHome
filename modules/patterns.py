@@ -39,7 +39,7 @@ def detect_flat_base(df):
     if min_l > 0 and (max_h - min_l) / min_l <= 0.15:
         avg_vol_5 = v.iloc[-5:].mean()
         vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
-        if avg_vol_5 <= vol_sma50 * 1.1:
+        if avg_vol_5 <= vol_sma50 * 1.2:
             return True
     return False
 
@@ -69,45 +69,8 @@ def detect_bull_flag(df):
             if ret_pct <= 0.382:
                 vol_pole = v.loc[:pole_top_idx].iloc[-10:].mean()
                 vol_flag = v.loc[pole_top_idx:].mean()
-                if vol_flag <= vol_pole * 0.85: # 15% drop in volume required
+                if vol_flag <= vol_pole * 0.85:
                     return True
-    return False
-
-def detect_vcp(df):
-    """Segment-based Depth Contraction: Left side is wide, right side tightens."""
-    if len(df) < 45: return False
-    h = df['High'].iloc[-60:]
-    l = df['Low'].iloc[-60:]
-    c = df['Close'].iloc[-60:]
-    v = df['Volume'].iloc[-60:]
-    
-    base_high = h.max()
-    curr_close = c.iloc[-1]
-    
-    # Must be trading near the top of the base (within 15%)
-    if base_high <= 0 or (base_high - curr_close) / base_high > 0.15:
-        return False
-        
-    # Split the base into 3 segments to check for volatility decreasing left-to-right
-    seg1_h = h.iloc[:20].max()
-    seg1_l = l.iloc[:20].min()
-    d1 = (seg1_h - seg1_l) / seg1_h if seg1_h > 0 else 0
-    
-    seg2_h = h.iloc[20:40].max()
-    seg2_l = l.iloc[20:40].min()
-    d2 = (seg2_h - seg2_l) / seg2_h if seg2_h > 0 else 0
-    
-    seg3_h = h.iloc[40:].max()
-    seg3_l = l.iloc[40:].min()
-    d3 = (seg3_h - seg3_l) / seg3_h if seg3_h > 0 else 0
-    
-    # Minervini VCP Rule: Left side must be loose (>=6%), right side must be tight (<=10%)
-    if max(d1, d2) >= 0.06 and d3 <= 0.10:
-        # Successive contraction check (allow 25% margin of error for market noise)
-        if d2 <= d1 * 1.25 and d3 <= max(d2, 0.04) * 1.25:
-            vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
-            if v.iloc[-5:].mean() <= vol_sma50 * 1.2:
-                return True
     return False
 
 def run_pattern_engine(df_screener, pat_config, combo_mode):
@@ -126,21 +89,26 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
                 
             df = data_dict[yf_t]
             
-            has_inside = detect_inside_bar(df) if pat_config.get("inside") else False
+            # Force evaluate inside bar if combo mode is selected, regardless of checkbox
+            check_inside = True if combo_mode == "Require Inside Bar INSIDE a Base" else pat_config.get("inside")
+            has_inside = detect_inside_bar(df) if check_inside else False
+            
             has_flat = detect_flat_base(df) if pat_config.get("flat") else False
             has_flag = detect_bull_flag(df) if pat_config.get("flag") else False
-            has_vcp = detect_vcp(df) if pat_config.get("vcp") else False
             
             detected = []
-            if has_inside: detected.append("🎯 NR14 Inside")
+            if has_inside and (pat_config.get("inside") or combo_mode == "Require Inside Bar INSIDE a Base"):
+                detected.append("🎯 NR14 Inside")
             if has_flat: detected.append("📐 Flat Base")
             if has_flag: detected.append("🚩 Bull Flag")
-            if has_vcp: detected.append("🌪️ VCP")
                 
-            # Apply strict COMBO logic if requested by user
+            # Apply strict COMBO logic
             if combo_mode == "Require Inside Bar INSIDE a Base":
-                if has_inside and (has_flat or has_flag or has_vcp):
-                    pattern_results[tv_sym] = " | ".join(detected)
+                # Ensure at least one of the selected bases is present
+                base_present = (has_flat and pat_config.get("flat")) or (has_flag and pat_config.get("flag"))
+                if has_inside and base_present:
+                    bases_only = [d for d in detected if d != "🎯 NR14 Inside"]
+                    pattern_results[tv_sym] = " | ".join(bases_only) + " + 🎯 Inside Bar"
                 else:
                     pattern_results[tv_sym] = ""
             else:
@@ -151,7 +119,7 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
     df_screener["Detected_Pattern"] = df_screener["TV_Symbol"].map(pattern_results).fillna("")
     
     # Filter the screener dataframe down to ONLY stocks that hit at least one selected pattern
-    if any(pat_config.values()):
+    if any(pat_config.values()) or combo_mode == "Require Inside Bar INSIDE a Base":
         df_screener = df_screener[df_screener["Detected_Pattern"] != ""]
         
     return df_screener
