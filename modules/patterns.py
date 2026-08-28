@@ -112,42 +112,41 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
     data_dict, sym_map = fetch_historical_data_yf(symbols_tuple, period="3mo")
     
-    if not data_dict:
-        df_screener["Detected_Pattern"] = ""
-        return df_screener
-        
     pattern_results = {}
     
-    for yf_t, tv_sym in sym_map.items():
-        if yf_t not in data_dict:
-            pattern_results[tv_sym] = ""
-            continue
-            
-        df = data_dict[yf_t]
-        
-        has_inside = detect_inside_bar(df) if pat_config.get("inside") else False
-        has_flat = detect_flat_base(df) if pat_config.get("flat") else False
-        has_flag = detect_bull_flag(df) if pat_config.get("flag") else False
-        has_vcp = detect_vcp(df) if pat_config.get("vcp") else False
-        
-        detected = []
-        if has_inside: detected.append("🎯 NR14 Inside")
-        if has_flat: detected.append("📐 Flat Base")
-        if has_flag: detected.append("🚩 Bull Flag")
-        if has_vcp: detected.append("🌪️ VCP")
-            
-        # Apply strict COMBO logic if requested by user
-        if combo_mode == "Require Inside Bar INSIDE a Base":
-            if has_inside and (has_flat or has_flag or has_vcp):
-                pattern_results[tv_sym] = " | ".join(detected)
-            else:
+    if data_dict:
+        for yf_t, tv_sym in sym_map.items():
+            if yf_t not in data_dict:
                 pattern_results[tv_sym] = ""
-        else:
-            pattern_results[tv_sym] = " | ".join(detected) if detected else ""
-        
+                continue
+                
+            df = data_dict[yf_t]
+            
+            has_inside = detect_inside_bar(df) if pat_config.get("inside") else False
+            has_flat = detect_flat_base(df) if pat_config.get("flat") else False
+            has_flag = detect_bull_flag(df) if pat_config.get("flag") else False
+            has_vcp = detect_vcp(df) if pat_config.get("vcp") else False
+            
+            detected = []
+            if has_inside: detected.append("🎯 NR14 Inside")
+            if has_flat: detected.append("📐 Flat Base")
+            if has_flag: detected.append("🚩 Bull Flag")
+            if has_vcp: detected.append("🌪️ VCP")
+                
+            # Apply strict COMBO logic if requested by user
+            if combo_mode == "Require Inside Bar INSIDE a Base":
+                if has_inside and (has_flat or has_flag or has_vcp):
+                    pattern_results[tv_sym] = " | ".join(detected)
+                else:
+                    pattern_results[tv_sym] = ""
+            else:
+                pattern_results[tv_sym] = " | ".join(detected) if detected else ""
+
+    # Map the results back to the dataframe
     df_screener["TV_Symbol"] = df_screener["exchange"] + ":" + df_screener["name"]
     df_screener["Detected_Pattern"] = df_screener["TV_Symbol"].map(pattern_results).fillna("")
     
+    # Filter the screener dataframe down to ONLY stocks that hit at least one selected pattern
     if any(pat_config.values()):
         df_screener = df_screener[df_screener["Detected_Pattern"] != ""]
         
