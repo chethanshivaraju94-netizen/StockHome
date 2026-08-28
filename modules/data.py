@@ -229,12 +229,12 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
         pass
     return 23700.0
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     """
-    Cached bulk download of historical OHLCV data for pattern geometry detection.
-    ttl=900 means it stores the heavy download in memory for 15 minutes.
-    Uses indestructible MultiIndex parsing.
+    Bulletproof Yahoo Finance extraction using group_by='ticker' to 
+    prevent multi-index parsing errors across different yfinance versions.
+    TTL is reduced to 5 mins to prevent storing an empty DF if rate-limited.
     """
     tickers = []
     sym_map = {}
@@ -247,31 +247,26 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     if not tickers:
         return {}, sym_map
         
-    data = yf.download(tickers, period=period, progress=False)
+    data = yf.download(tickers, period=period, group_by='ticker', progress=False)
     data_dict = {}
     
     if data.empty:
         return data_dict, sym_map
 
-    # Indestructible Parser: Handles both Single Index (1 ticker) and MultiIndex (N tickers)
-    if isinstance(data.columns, pd.MultiIndex):
+    # Safely extract regardless of whether it's 1 ticker or 500 tickers
+    if len(tickers) == 1:
+        df_t = data.dropna(how='all')
+        if not df_t.empty:
+            data_dict[tickers[0]] = df_t
+    else:
         for t in tickers:
             try:
-                # Check if Ticker is level 0 or level 1
+                # When group_by='ticker', top level is the ticker name
                 if t in data.columns.get_level_values(0):
-                    df_t = data[t].copy()
-                    df_t = df_t.dropna(how='all')
-                    if not df_t.empty:
-                        data_dict[t] = df_t
-                elif t in data.columns.get_level_values(1):
-                    df_t = data.xs(t, level=1, axis=1).copy()
-                    df_t = df_t.dropna(how='all')
+                    df_t = data[t].dropna(how='all')
                     if not df_t.empty:
                         data_dict[t] = df_t
             except Exception:
                 pass
-    else:
-        # Single ticker fallback
-        data_dict[tickers[0]] = data.dropna(how='all')
                 
     return data_dict, sym_map
