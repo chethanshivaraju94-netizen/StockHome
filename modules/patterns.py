@@ -24,23 +24,31 @@ def detect_inside_bar(df):
     return False
 
 def detect_flat_base(df):
-    """10+ bars constrained within a tight 15% band with Volume Dry Up."""
-    if len(df) < 20: return False
+    """10+ bars constrained within a tight 15% band with Vol Dry Up (No max length cap)."""
+    if len(df) < 15: return False
     h = df['High']
     l = df['Low']
     v = df['Volume']
     
-    period = 15 
-    h_period = h.iloc[-period:]
-    l_period = l.iloc[-period:]
-    max_h = h_period.max()
-    min_l = l_period.min()
+    # We fetch 3 months of data (~60 to 65 trading days max). 
+    # Scan from the longest possible base down to a minimum of 10 days.
+    max_lookback = min(65, len(df))
     
-    if min_l > 0 and (max_h - min_l) / min_l <= 0.15:
-        avg_vol_5 = v.iloc[-5:].mean()
-        vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
-        if avg_vol_5 <= vol_sma50 * 1.2:
-            return True
+    for period in range(max_lookback, 9, -1):
+        h_period = h.iloc[-period:]
+        l_period = l.iloc[-period:]
+        max_h = h_period.max()
+        min_l = l_period.min()
+        
+        # As long as the price action fits in a 15% box, the base is structurally valid
+        if min_l > 0 and (max_h - min_l) / min_l <= 0.15:
+            # Volume signature check: the most recent 5 days must show dry-up
+            avg_vol_5 = v.iloc[-5:].mean()
+            vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
+            
+            if avg_vol_5 <= vol_sma50 * 1.2:
+                return True
+                
     return False
 
 def detect_bull_flag(df):
