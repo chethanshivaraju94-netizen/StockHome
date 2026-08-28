@@ -194,78 +194,15 @@ def detect_symmetrical_triangle(df):
                         return True
     return False
 
-def detect_cup_and_handle(df):
-    """U-shaped base >= 7 weeks, handle strictly in upper half, with >= 30% prior trend."""
-    if len(df) < 60: return False
-    
-    h = df['High']
-    l = df['Low']
-    v = df['Volume']
-    
-    # 1. Right lip must be in the last 25 days, leaving at least 4 days for the handle
-    right_lip_search = h.iloc[-25:-4]
-    if len(right_lip_search) == 0: return False
-    
-    right_lip_idx = right_lip_search.idxmax()
-    right_lip_price = h[right_lip_idx]
-    rl_pos = h.index.get_loc(right_lip_idx)
-    
-    # 2. Left lip must be at least 35 days (7 weeks) prior to right lip
-    if rl_pos < 35: return False
-    
-    left_lip_search = h.iloc[:rl_pos-34]
-    if len(left_lip_search) == 0: return False
-    
-    left_lip_idx = left_lip_search.idxmax()
-    left_lip_price = h[left_lip_idx]
-    ll_pos = h.index.get_loc(left_lip_idx)
-    
-    # 3. Cup constraints: Right lip within 15% of Left lip
-    if abs(left_lip_price - right_lip_price) / max(left_lip_price, right_lip_price) > 0.15:
-        return False
-        
-    # 4. Cup Depth: 12% to 45% standard institutional depth
-    cup_bottom = l.iloc[ll_pos:rl_pos].min()
-    cup_depth = (max(left_lip_price, right_lip_price) - cup_bottom) / max(left_lip_price, right_lip_price)
-    if not (0.12 <= cup_depth <= 0.45):
-        return False
-        
-    # 5. Prior Trend: Minimum 30% run-up before Left Lip
-    prior_data = l.iloc[:ll_pos]
-    if len(prior_data) < 5: return False 
-    prior_low = prior_data.min()
-    if prior_low <= 0: return False
-    
-    if (left_lip_price - prior_low) / prior_low < 0.30:
-        return False
-        
-    # 6. Handle Constraints (Must be strictly in UPPER HALF of the cup)
-    handle_data = l.iloc[rl_pos+1:]
-    handle_low = handle_data.min()
-    
-    cup_midpoint = cup_bottom + (max(left_lip_price, right_lip_price) - cup_bottom) / 2.0
-    if handle_low < cup_midpoint:
-        return False
-        
-    # 7. Volume Dry Up in Handle
-    vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
-    handle_vol = v.iloc[rl_pos+1:].mean()
-    if handle_vol <= vol_sma50 * 1.25:
-        return True
-        
-    return False
-
 
 # ==========================================
 # 3. MASTER PATTERN ENGINE CONTROLLER
 # ==========================================
 def run_pattern_engine(df_screener, pat_config, combo_mode):
-    from modules.data import fetch_historical_data_yf_v2
+    from modules.data import fetch_historical_data_yf
     
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
-    
-    # Call the new v2 cache-buster function
-    data_dict, sym_map = fetch_historical_data_yf_v2(symbols_tuple, period="6mo")
+    data_dict, sym_map = fetch_historical_data_yf(symbols_tuple, period="3mo")
     
     pattern_results = {}
     
@@ -291,7 +228,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
         has_asc_tri = detect_ascending_triangle(df) if pat_config.get("asc_tri") else False
         has_desc_tri = detect_descending_triangle(df) if pat_config.get("desc_tri") else False
         has_sym_tri = detect_symmetrical_triangle(df) if pat_config.get("sym_tri") else False
-        has_cup = detect_cup_and_handle(df) if pat_config.get("cup") else False
         
         detected = []
         if has_inside and (pat_config.get("inside") or combo_mode == "Require Inside Bar INSIDE a Base"):
@@ -301,7 +237,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
         if has_asc_tri: detected.append("📐 Asc Triangle")
         if has_desc_tri: detected.append("🔻 Desc Triangle")
         if has_sym_tri: detected.append("🔷 Sym Triangle")
-        if has_cup: detected.append("☕ Cup & Handle")
             
         # Apply Combo Filter Mode
         if combo_mode == "Require Inside Bar INSIDE a Base":
@@ -311,7 +246,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
             if pat_config.get("asc_tri") and has_asc_tri: base_present = True
             if pat_config.get("desc_tri") and has_desc_tri: base_present = True
             if pat_config.get("sym_tri") and has_sym_tri: base_present = True
-            if pat_config.get("cup") and has_cup: base_present = True
             
             if has_inside and base_present:
                 bases_only = [d for d in detected if d != "🎯 NR14 Inside"]
