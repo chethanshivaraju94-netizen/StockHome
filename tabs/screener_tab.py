@@ -252,19 +252,17 @@ def render_screener_tab():
                     label_visibility="collapsed"
                 )
 
-            col_p2, col_p3, col_p4, col_p5 = st.columns(4)
+            col_p2, col_p3, col_p4 = st.columns(3)
             with col_p2:
                 pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=st.session_state.get("f_pat_inside", True), disabled=not en_patterns)
             with col_p3:
                 pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=st.session_state.get("f_pat_flat", True), disabled=not en_patterns)
             with col_p4:
                 pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=st.session_state.get("f_pat_flag", True), disabled=not en_patterns)
-            with col_p5:
-                pat_vcp = st.checkbox("🌪️ Volatility Contraction (VCP)", value=st.session_state.get("f_pat_vcp", True), disabled=not en_patterns)
 
-        pat_config = {"inside": pat_inside, "flat": pat_flat, "flag": pat_flag, "vcp": pat_vcp}
+        pat_config = {"inside": pat_inside, "flat": pat_flat, "flag": pat_flag}
 
-        if en_patterns and not df.empty and any(pat_config.values()):
+        if en_patterns and not df.empty and (any(pat_config.values()) or combo_mode == "Require Inside Bar INSIDE a Base"):
             with st.spinner("📐 Reading cached OHLCV data & Running Geometric Engine..."):
                 from modules.patterns import run_pattern_engine
                 df = run_pattern_engine(df, pat_config, combo_mode)
