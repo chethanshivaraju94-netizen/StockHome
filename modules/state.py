@@ -177,6 +177,12 @@ def load_filter_presets():
                 c: {"en": False, "val": 0.0}
                 for c in ["Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.YTD", "Perf.Y"]
             },
+            # --- PATTERN RECOGNITION PRESETS ---
+            "en_patterns": False,
+            "pat_inside": True,
+            "pat_flat": True,
+            "pat_flag": True,
+            "pat_vcp": True,
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
