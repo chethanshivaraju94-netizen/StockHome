@@ -263,7 +263,7 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
     from modules.data import fetch_historical_data_yf
     
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
-    # Increased to 6 months to ensure enough data for the Cup & Handle prior trend
+    # 6 Months to ensure enough history for Cup & Handle prior-trend calculation
     data_dict, sym_map = fetch_historical_data_yf(symbols_tuple, period="6mo")
     
     pattern_results = {}
