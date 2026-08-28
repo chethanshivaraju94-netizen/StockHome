@@ -253,19 +253,20 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
         return data_dict, sym_map
 
     if len(tickers) == 1:
-        data_dict[tickers[0]] = data
+        data_dict[tickers[0]] = data.dropna(how='all')
     else:
         for t in tickers:
             try:
-                if t in data.columns.get_level_values(1):
-                    df_t = pd.DataFrame({
-                        'Close': data['Close'][t],
-                        'High': data['High'][t],
-                        'Low': data['Low'][t],
-                        'Volume': data['Volume'][t]
-                    }).dropna()
-                    if not df_t.empty:
-                        data_dict[t] = df_t
+                # Bulletproof extraction to avoid multi-index version issues
+                df_t = pd.DataFrame()
+                if 'Close' in data: df_t['Close'] = data['Close'][t]
+                if 'High' in data: df_t['High'] = data['High'][t]
+                if 'Low' in data: df_t['Low'] = data['Low'][t]
+                if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
+                
+                df_t = df_t.dropna(how='all')
+                if not df_t.empty:
+                    data_dict[t] = df_t
             except Exception:
                 pass
                 
