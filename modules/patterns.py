@@ -194,36 +194,6 @@ def detect_symmetrical_triangle(df):
                         return True
     return False
 
-def detect_falling_wedge(df):
-    if len(df) < 30: return False
-    geom = extract_pivots_and_slopes(df, lookback=40)
-    if not geom: return False
-
-    is_both_falling = geom["slope_h"] < -0.001 and geom["slope_l"] < -0.001
-    is_converging = abs(geom["slope_h"]) > abs(geom["slope_l"])
-    
-    if is_both_falling and is_converging:
-        v = df['Volume']
-        vol_sma50 = v.rolling(50, min_periods=15).mean().iloc[-1]
-        if v.iloc[-5:].mean() <= vol_sma50 * 1.25:
-            return True
-    return False
-
-def detect_channel(df):
-    if len(df) < 30: return False
-    geom = extract_pivots_and_slopes(df, lookback=40)
-    if not geom: return False
-
-    slope_diff = abs(geom["slope_h"] - geom["slope_l"])
-    if slope_diff <= 0.0035:
-        if geom["slope_h"] > 0.0015:
-            return "📈 Ascending Channel"
-        elif geom["slope_h"] < -0.0015:
-            return "📉 Descending Channel"
-        else:
-            return "⏸️ Horizontal Channel"
-    return False
-
 
 # ==========================================
 # 3. MASTER PATTERN ENGINE CONTROLLER
@@ -258,8 +228,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
         has_asc_tri = detect_ascending_triangle(df) if pat_config.get("asc_tri") else False
         has_desc_tri = detect_descending_triangle(df) if pat_config.get("desc_tri") else False
         has_sym_tri = detect_symmetrical_triangle(df) if pat_config.get("sym_tri") else False
-        has_wedge = detect_falling_wedge(df) if pat_config.get("wedge") else False
-        channel_res = detect_channel(df) if pat_config.get("channel") else False
         
         detected = []
         if has_inside and (pat_config.get("inside") or combo_mode == "Require Inside Bar INSIDE a Base"):
@@ -269,8 +237,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
         if has_asc_tri: detected.append("📐 Asc Triangle")
         if has_desc_tri: detected.append("🔻 Desc Triangle")
         if has_sym_tri: detected.append("🔷 Sym Triangle")
-        if has_wedge: detected.append("📉 Falling Wedge")
-        if channel_res: detected.append(channel_res)
             
         # Apply Combo Filter Mode
         if combo_mode == "Require Inside Bar INSIDE a Base":
@@ -280,8 +246,6 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
             if pat_config.get("asc_tri") and has_asc_tri: base_present = True
             if pat_config.get("desc_tri") and has_desc_tri: base_present = True
             if pat_config.get("sym_tri") and has_sym_tri: base_present = True
-            if pat_config.get("wedge") and has_wedge: base_present = True
-            if pat_config.get("channel") and channel_res: base_present = True
             
             if has_inside and base_present:
                 bases_only = [d for d in detected if d != "🎯 NR14 Inside"]
