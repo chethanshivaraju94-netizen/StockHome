@@ -230,10 +230,11 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
     return 23700.0
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf(symbols_tuple, period="3mo"):
+def fetch_historical_data_yf(symbols_tuple, period="6mo"):
     """
     Cached bulk download of historical OHLCV data for pattern geometry detection.
-    Splits requests into chunks of 50 to prevent Yahoo Finance from blocking massive requests.
+    Splits requests into chunks of 75 to prevent Yahoo Finance from blocking massive requests.
+    Uses .xs() logic to guarantee accurate column extraction on all yfinance versions.
     """
     tickers = []
     sym_map = {}
@@ -247,34 +248,35 @@ def fetch_historical_data_yf(symbols_tuple, period="3mo"):
     if not tickers:
         return data_dict, sym_map
         
-    # Chunk the requests into batches of 50 to bypass Yahoo Finance URL length limits
-    chunk_size = 50
+    # Safe chunk size to avoid URI Too Long error
+    chunk_size = 75
     for i in range(0, len(tickers), chunk_size):
         chunk = tickers[i:i + chunk_size]
         try:
-            # Download without group_by to ensure the column structure remains consistent
             data = yf.download(chunk, period=period, progress=False, threads=True)
             if data.empty:
                 continue
-                
-            # If only 1 ticker in the chunk, yfinance returns a flat dataframe
+            
+            # Single ticker returns a simple dataframe
             if len(chunk) == 1:
                 df_t = data.dropna(how='all')
                 if not df_t.empty:
                     data_dict[chunk[0]] = df_t
             
-            # If >1 ticker, yfinance returns a MultiIndex dataframe
+            # Multiple tickers return a MultiIndex dataframe
             elif isinstance(data.columns, pd.MultiIndex):
+                # Dynamically determine which index level holds the ticker symbols
+                level_with_tickers = 1 if chunk[0] in data.columns.get_level_values(1) else 0
+                
                 for t in chunk:
                     try:
-                        if t in data.columns.get_level_values(1):
-                            df_t = pd.DataFrame()
-                            if 'Close' in data: df_t['Close'] = data['Close'][t]
-                            if 'High' in data: df_t['High'] = data['High'][t]
-                            if 'Low' in data: df_t['Low'] = data['Low'][t]
-                            if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
-                            
+                        if level_with_tickers == 1 and t in data.columns.get_level_values(1):
+                            df_t = data.xs(t, level=1, axis=1)
                             df_t = df_t.dropna(how='all')
+                            if not df_t.empty:
+                                data_dict[t] = df_t
+                        elif level_with_tickers == 0 and t in data.columns.get_level_values(0):
+                            df_t = data[t].dropna(how='all')
                             if not df_t.empty:
                                 data_dict[t] = df_t
                     except Exception:
