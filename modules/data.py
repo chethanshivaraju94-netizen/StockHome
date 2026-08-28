@@ -56,7 +56,7 @@ def add_clean_ipo_date_col(df):
     df["IPO Date"] = df["IPO_Date_DT"].dt.strftime("%Y-%m-%d").fillna("N/A")
     return df
 
-@st.cache_data(ttl=43200, show_spinner="藤 Synchronizing Daily Circuit Price Bands...")
+@st.cache_data(ttl=43200, show_spinner="⚡ Synchronizing Daily Circuit Price Bands...")
 def get_nse_circuit_bands():
     symbol_to_band = {}
     try:
@@ -104,7 +104,7 @@ def fetch_excel_file(filename):
                     pass
     return None
 
-@st.cache_data(ttl=3600, show_spinner="藤 Fetching latest Market Health & Sector tables...")
+@st.cache_data(ttl=3600, show_spinner="⚡ Fetching latest Market Health & Sector tables...")
 def load_market_monitor_data():
     file_source = fetch_excel_file("NSE_Market_Monitor.xlsx")
     if file_source is None:
@@ -118,7 +118,7 @@ def load_market_monitor_data():
         st.error(f"Could not parse Market Monitor file: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=3600, show_spinner="藤 Fetching Sector Rotation & Heatmap tables...")
+@st.cache_data(ttl=3600, show_spinner="⚡ Fetching Sector Rotation & Heatmap tables...")
 def load_sector_monitor_data():
     file_source = fetch_excel_file("NSE_Sector_Monitor.xlsx")
     if file_source is None:
@@ -180,7 +180,7 @@ def fetch_watchlist_enrichMENT(symbol_list):
             df["ADR_pct"] = ((df["ADR"] / df["close"]) * 100).round(2)
             df["Close"] = df["close"].round(2)
             df["Change %"] = df["change"].round(2)
-            df["Market Cap (竄ｹ Cr)"] = (df["market_cap_basic"] / 10_000_000).round(2)
+            df["Market Cap (₹ Cr)"] = (df["market_cap_basic"] / 10_000_000).round(2)
             df["EPS Q YoY %"] = coalesce_columns(df, EPS_Q_ALIASES).round(2)
             df["Sales Q YoY %"] = coalesce_columns(df, SALES_Q_ALIASES).round(2)
             df = add_clean_ipo_date_col(df)
@@ -246,23 +246,27 @@ def fetch_historical_data_yf(symbols, period="6mo"):
     if not tickers:
         return {}, sym_map
         
-    data = yf.download(tickers, period=period, threads=True, show_errors=False, progress=False)
+    # Removed show_errors=False and threads=True to ensure compatibility with all yfinance versions
+    data = yf.download(tickers, period=period, progress=False)
     
     data_dict = {}
+    if data.empty:
+        return data_dict, sym_map
+
     if len(tickers) == 1:
-        if not data.empty:
-            data_dict[tickers[0]] = data
+        data_dict[tickers[0]] = data
     else:
         for t in tickers:
             try:
-                df_t = pd.DataFrame({
-                    'Close': data['Close'][t],
-                    'High': data['High'][t],
-                    'Low': data['Low'][t],
-                    'Volume': data['Volume'][t]
-                }).dropna()
-                if not df_t.empty:
-                    data_dict[t] = df_t
+                if t in data.columns.get_level_values(1):
+                    df_t = pd.DataFrame({
+                        'Close': data['Close'][t],
+                        'High': data['High'][t],
+                        'Low': data['Low'][t],
+                        'Volume': data['Volume'][t]
+                    }).dropna()
+                    if not df_t.empty:
+                        data_dict[t] = df_t
             except Exception:
                 pass
                 
