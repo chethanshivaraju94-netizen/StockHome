@@ -1,5 +1,6 @@
 import io
 import os
+import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -229,12 +230,11 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
         pass
     return 23700.0
 
-@st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf_v2(symbols_tuple, period="3mo"):
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_historical_data_yf_v3(symbols_tuple, period="3mo"):
     """
-    Cached bulk download of historical OHLCV data for pattern geometry detection.
-    Splits requests into chunks to prevent Yahoo Finance from blocking massive requests.
-    Uses .xs() logic to guarantee accurate column extraction, including 'Open' for Gap logic.
+    V3: Renamed to bust cache. 
+    Strictly forces threads=False and adds time.sleep() to bypass Yahoo rate limits.
     """
     tickers = []
     sym_map = {}
@@ -248,11 +248,12 @@ def fetch_historical_data_yf_v2(symbols_tuple, period="3mo"):
     if not tickers:
         return data_dict, sym_map
         
-    chunk_size = 75
+    chunk_size = 40
     for i in range(0, len(tickers), chunk_size):
         chunk = tickers[i:i + chunk_size]
         try:
-            data = yf.download(chunk, period=period, progress=False, threads=True)
+            # THIS IS THE FIX: threads=False prevents parallel request bans
+            data = yf.download(chunk, period=period, progress=False, threads=False)
             if data.empty:
                 continue
             
@@ -271,7 +272,6 @@ def fetch_historical_data_yf_v2(symbols_tuple, period="3mo"):
                             if not df_t.empty:
                                 data_dict[t] = df_t
                         elif level_with_tickers == 0 and t in data.columns.get_level_values(0):
-                            # Ensure we specifically extract Open alongside the rest
                             df_t = pd.DataFrame()
                             if 'Open' in data: df_t['Open'] = data['Open'][t]
                             if 'Close' in data: df_t['Close'] = data['Close'][t]
@@ -286,5 +286,8 @@ def fetch_historical_data_yf_v2(symbols_tuple, period="3mo"):
                         pass
         except Exception:
             pass
+            
+        # THIS IS THE FIX: Stealth delay to bypass rate limits
+        time.sleep(0.5) 
             
     return data_dict, sym_map
