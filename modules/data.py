@@ -1,6 +1,5 @@
 import io
 import os
-import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -231,11 +230,11 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
     return 23700.0
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf_v6(symbols_tuple, period="3mo"):
+def fetch_historical_data_yf_v7(symbols_tuple, period="3mo"):
     """
-    V6: The Ultimate High-Speed Cache Buster.
-    Restores threads=True for maximum speed but uses a custom request Session 
-    and group_by='ticker' to guarantee flawless, unblocked column extraction.
+    V7: Reverted to the pristine, robust, native download.
+    No artificial chunking, no over-engineered threading.
+    Let yfinance handle the batching internally, ensuring stable column extraction.
     """
     tickers = []
     sym_map = {}
@@ -246,50 +245,34 @@ def fetch_historical_data_yf_v6(symbols_tuple, period="3mo"):
         sym_map[yf_t] = s
         
     data_dict = {}
-    if not tickers:
+    if not tickers: 
         return data_dict, sym_map
 
-    # Create a stealth session to bypass basic API blocks
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    })
+    # Native yfinance download (fastest & most reliable)
+    data = yf.download(tickers, period=period, progress=False)
 
-    chunk_size = 100
-    for i in range(0, len(tickers), chunk_size):
-        chunk = tickers[i:i + chunk_size]
-        try:
-            # group_by='ticker' locks the columns into an unbreakable format
-            data = yf.download(
-                chunk, 
-                period=period, 
-                progress=False, 
-                threads=True, 
-                group_by='ticker', 
-                session=session
-            )
-            
-            if data is None or data.empty:
-                continue
-                
-            if len(chunk) == 1:
-                df_t = data.dropna(how='all')
-                if not df_t.empty and 'Close' in df_t.columns:
-                    data_dict[chunk[0]] = df_t
-            else:
-                for t in chunk:
-                    try:
-                        # With group_by='ticker', extracting individual stock data is completely safe
-                        if t in data.columns.get_level_values(0):
-                            df_t = data[t].copy()
-                            df_t = df_t.dropna(how='all')
-                            if not df_t.empty and 'Close' in df_t.columns:
-                                data_dict[t] = df_t
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-            
-        time.sleep(0.1) # Micro-pause to maintain session health
-            
+    if data.empty: 
+        return data_dict, sym_map
+
+    if len(tickers) == 1:
+        df_t = data.dropna(how='all')
+        if not df_t.empty:
+            data_dict[tickers[0]] = df_t
+    else:
+        for t in tickers:
+            try:
+                # The indestructible, version-agnostic column parser
+                df_t = pd.DataFrame()
+                if 'Open' in data: df_t['Open'] = data['Open'][t]
+                if 'High' in data: df_t['High'] = data['High'][t]
+                if 'Low' in data: df_t['Low'] = data['Low'][t]
+                if 'Close' in data: df_t['Close'] = data['Close'][t]
+                if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
+
+                df_t = df_t.dropna(how='all')
+                if not df_t.empty:
+                    data_dict[t] = df_t
+            except Exception:
+                pass
+
     return data_dict, sym_map
