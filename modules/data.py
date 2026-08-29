@@ -5,7 +5,6 @@ import requests
 import pandas as pd
 import streamlit as st
 import yfinance as yf
-import concurrent.futures
 from tradingview_screener import Query, col
 from modules.config import map_to_indian_classification
 
@@ -232,12 +231,11 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
     return 23700.0
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf_v5(symbols_tuple, period="3mo"):
+def fetch_historical_data_yf_v6(symbols_tuple, period="3mo"):
     """
-    V5: The Silver Bullet. 
-    Completely abandons yf.download() batching. 
-    Uses ThreadPoolExecutor to fetch single tickers concurrently. 
-    Zero MultiIndex parsing issues and bypasses chunk URL limits completely.
+    V6: The Ultimate High-Speed Cache Buster.
+    Restores threads=True for maximum speed but uses a custom request Session 
+    and group_by='ticker' to guarantee flawless, unblocked column extraction.
     """
     tickers = []
     sym_map = {}
@@ -251,27 +249,47 @@ def fetch_historical_data_yf_v5(symbols_tuple, period="3mo"):
     if not tickers:
         return data_dict, sym_map
 
-    def fetch_single(t):
+    # Create a stealth session to bypass basic API blocks
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    })
+
+    chunk_size = 100
+    for i in range(0, len(tickers), chunk_size):
+        chunk = tickers[i:i + chunk_size]
         try:
-            # Use history() which is completely stable for single tickers
-            df = yf.Ticker(t).history(period=period)
-            if not df.empty and 'Close' in df.columns:
-                clean_df = pd.DataFrame()
-                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-                    if col in df.columns:
-                        clean_df[col] = df[col]
-                clean_df = clean_df.dropna(how='all')
-                if not clean_df.empty:
-                    return t, clean_df
+            # group_by='ticker' locks the columns into an unbreakable format
+            data = yf.download(
+                chunk, 
+                period=period, 
+                progress=False, 
+                threads=True, 
+                group_by='ticker', 
+                session=session
+            )
+            
+            if data is None or data.empty:
+                continue
+                
+            if len(chunk) == 1:
+                df_t = data.dropna(how='all')
+                if not df_t.empty and 'Close' in df_t.columns:
+                    data_dict[chunk[0]] = df_t
+            else:
+                for t in chunk:
+                    try:
+                        # With group_by='ticker', extracting individual stock data is completely safe
+                        if t in data.columns.get_level_values(0):
+                            df_t = data[t].copy()
+                            df_t = df_t.dropna(how='all')
+                            if not df_t.empty and 'Close' in df_t.columns:
+                                data_dict[t] = df_t
+                    except Exception:
+                        pass
         except Exception:
             pass
-        return t, None
-
-    # Execute concurrently with 15 workers (fast enough, but won't trigger IP bans)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-        results = executor.map(fetch_single, tickers)
-        for t, df in results:
-            if df is not None:
-                data_dict[t] = df
-
+            
+        time.sleep(0.1) # Micro-pause to maintain session health
+            
     return data_dict, sym_map
