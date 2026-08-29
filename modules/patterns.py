@@ -4,7 +4,7 @@ import streamlit as st
 
 
 # ==========================================
-# 0. GEOMETRIC REGRESSION & PIVOT HELPERS
+# 0. GEOMETRIC REGRESSION & INDICATOR HELPERS
 # ==========================================
 def extract_pivots_and_slopes(df, lookback=40):
     if len(df) < lookback:
@@ -62,23 +62,29 @@ def extract_pivots_and_slopes(df, lookback=40):
         "lows_count": len(low_idx)
     }
 
-
-# ==========================================
-# 1. PHASE 1 PATTERNS (CONTRACTION SETUPS)
-# ==========================================
-def detect_inside_bar(df):
-    if len(df) < 10: return False
+def get_atr14(df):
     h = df['High']
     l = df['Low']
     c = df['Close']
+    tr1 = h - l
+    tr2 = (h - c.shift(1)).abs()
+    tr3 = (l - c.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(14, min_periods=5).mean().iloc[-1]
+
+
+# ==========================================
+# 1. ACTION TRIGGERS (DAILY CANDLE TIMING)
+# ==========================================
+def detect_inside_bar(df):
+    """Inside bar with daily range strictly less than ATR14, and volume <= 50 SMA."""
+    if len(df) < 15: return False
+    h = df['High']
+    l = df['Low']
     v = df['Volume']
     
     if h.iloc[-1] <= h.iloc[-2] and l.iloc[-1] >= l.iloc[-2]:
-        tr1 = h - l
-        tr2 = (h - c.shift(1)).abs()
-        tr3 = (l - c.shift(1)).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr14 = tr.rolling(14, min_periods=5).mean().iloc[-1]
+        atr14 = get_atr14(df)
         rng = h.iloc[-1] - l.iloc[-1]
         
         if rng < atr14:
@@ -87,14 +93,81 @@ def detect_inside_bar(df):
                 return True
     return False
 
+def detect_ema21_shakeout(df):
+    """Pierces 21 EMA intraday, closes in upper 40% of range, range < ATR14."""
+    if len(df) < 25: return False
+    h = df['High']
+    l = df['Low']
+    c = df['Close']
+    
+    ema21 = c.ewm(span=21, adjust=False).mean()
+    today_ema = ema21.iloc[-1]
+    
+    # Low undercuts 21 EMA, but Close finishes above 21 EMA
+    if l.iloc[-1] < today_ema and c.iloc[-1] >= today_ema:
+        day_range = h.iloc[-1] - l.iloc[-1]
+        if day_range > 0:
+            # Closes in top 40% of range
+            close_loc = (c.iloc[-1] - l.iloc[-1]) / day_range
+            if close_loc >= 0.60:
+                atr14 = get_atr14(df)
+                if day_range < atr14:
+                    return True
+    return False
+
+def detect_ema10_shakeout(df):
+    """Pierces 10 EMA intraday, closes in upper 40% of range, range < ATR14."""
+    if len(df) < 15: return False
+    h = df['High']
+    l = df['Low']
+    c = df['Close']
+    
+    ema10 = c.ewm(span=10, adjust=False).mean()
+    today_ema = ema10.iloc[-1]
+    
+    if l.iloc[-1] < today_ema and c.iloc[-1] >= today_ema:
+        day_range = h.iloc[-1] - l.iloc[-1]
+        if day_range > 0:
+            close_loc = (c.iloc[-1] - l.iloc[-1]) / day_range
+            if close_loc >= 0.60:
+                atr14 = get_atr14(df)
+                if day_range < atr14:
+                    return True
+    return False
+
+def detect_gap_down_reversal(df):
+    """Opens below yesterday's close, reverses to close green in upper 40%, range < ATR14."""
+    if len(df) < 15: return False
+    h = df['High']
+    l = df['Low']
+    c = df['Close']
+    o = df['Open'] if 'Open' in df.columns else df['Close'].shift(1)
+    
+    # Gap down on open relative to yesterday's close
+    if o.iloc[-1] < c.iloc[-2]:
+        # Green reversal candle (Close > Open)
+        if c.iloc[-1] > o.iloc[-1]:
+            day_range = h.iloc[-1] - l.iloc[-1]
+            if day_range > 0:
+                close_loc = (c.iloc[-1] - l.iloc[-1]) / day_range
+                if close_loc >= 0.60:
+                    atr14 = get_atr14(df)
+                    if day_range < atr14:
+                        return True
+    return False
+
+
+# ==========================================
+# 2. BASE STRUCTURES (THE OVERALL SETUP)
+# ==========================================
 def detect_flat_base(df):
+    """10+ bars constrained within a tight 15% band with Vol Dry Up."""
     if len(df) < 15: return False
     h = df['High']
     l = df['Low']
     v = df['Volume']
     
     max_lookback = min(65, len(df))
-    
     for period in range(max_lookback, 9, -1):
         h_period = h.iloc[-period:]
         l_period = l.iloc[-period:]
@@ -109,6 +182,7 @@ def detect_flat_base(df):
     return False
 
 def detect_bull_flag(df):
+    """Sharp pole >= 20% followed by tight retracement <= 38.2%."""
     if len(df) < 25: return False
     h = df['High']
     l = df['Low']
@@ -137,10 +211,6 @@ def detect_bull_flag(df):
                     return True
     return False
 
-
-# ==========================================
-# 2. PHASE 2 PATTERNS (GEOMETRIC BREAKOUTS)
-# ==========================================
 def detect_ascending_triangle(df):
     if len(df) < 30: return False
     geom = extract_pivots_and_slopes(df, lookback=40)
@@ -199,10 +269,10 @@ def detect_symmetrical_triangle(df):
 # 3. MASTER PATTERN ENGINE CONTROLLER
 # ==========================================
 def run_pattern_engine(df_screener, pat_config, combo_mode):
-    from modules.data import fetch_historical_data_yf
+    from modules.data import fetch_historical_data_yf_v2
     
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
-    data_dict, sym_map = fetch_historical_data_yf(symbols_tuple, period="3mo")
+    data_dict, sym_map = fetch_historical_data_yf_v2(symbols_tuple, period="3mo")
     
     pattern_results = {}
     
@@ -218,47 +288,46 @@ def run_pattern_engine(df_screener, pat_config, combo_mode):
             
         df = data_dict[yf_t]
         
-        # 1. Evaluate Contraction Setups
-        check_inside = True if combo_mode == "Require Inside Bar INSIDE a Base" else pat_config.get("inside")
-        has_inside = detect_inside_bar(df) if check_inside else False
+        # 1. Evaluate Action Triggers
+        has_inside = detect_inside_bar(df) if pat_config.get("inside") else False
+        has_ema21 = detect_ema21_shakeout(df) if pat_config.get("ema21") else False
+        has_ema10 = detect_ema10_shakeout(df) if pat_config.get("ema10") else False
+        has_gap_rev = detect_gap_down_reversal(df) if pat_config.get("gap_rev") else False
+        
+        triggers = []
+        if has_inside: triggers.append("🎯 NR14 Inside")
+        if has_ema21: triggers.append("⚡ 21 EMA Shakeout")
+        if has_ema10: triggers.append("🔥 10 EMA Shakeout")
+        if has_gap_rev: triggers.append("🔄 Gap Reversal")
+
+        # 2. Evaluate Base Structures
         has_flat = detect_flat_base(df) if pat_config.get("flat") else False
         has_flag = detect_bull_flag(df) if pat_config.get("flag") else False
-        
-        # 2. Evaluate Geometric Setups
         has_asc_tri = detect_ascending_triangle(df) if pat_config.get("asc_tri") else False
         has_desc_tri = detect_descending_triangle(df) if pat_config.get("desc_tri") else False
         has_sym_tri = detect_symmetrical_triangle(df) if pat_config.get("sym_tri") else False
         
-        detected = []
-        if has_inside and (pat_config.get("inside") or combo_mode == "Require Inside Bar INSIDE a Base"):
-            detected.append("🎯 NR14 Inside")
-        if has_flat: detected.append("📐 Flat Base")
-        if has_flag: detected.append("🚩 Bull Flag")
-        if has_asc_tri: detected.append("📐 Asc Triangle")
-        if has_desc_tri: detected.append("🔻 Desc Triangle")
-        if has_sym_tri: detected.append("🔷 Sym Triangle")
+        structures = []
+        if has_flat: structures.append("📐 Flat Base")
+        if has_flag: structures.append("🚩 Bull Flag")
+        if has_asc_tri: structures.append("📐 Asc Triangle")
+        if has_desc_tri: structures.append("🔻 Desc Triangle")
+        if has_sym_tri: structures.append("🔷 Sym Triangle")
             
-        # Apply Combo Filter Mode
-        if combo_mode == "Require Inside Bar INSIDE a Base":
-            base_present = False
-            if pat_config.get("flat") and has_flat: base_present = True
-            if pat_config.get("flag") and has_flag: base_present = True
-            if pat_config.get("asc_tri") and has_asc_tri: base_present = True
-            if pat_config.get("desc_tri") and has_desc_tri: base_present = True
-            if pat_config.get("sym_tri") and has_sym_tri: base_present = True
-            
-            if has_inside and base_present:
-                bases_only = [d for d in detected if d != "🎯 NR14 Inside"]
-                pattern_results[tv_sym] = " | ".join(bases_only) + " + 🎯 Inside Bar"
+        # Apply Match Logic
+        if combo_mode == "Require Action Trigger INSIDE a Base":
+            if structures and triggers:
+                pattern_results[tv_sym] = " | ".join(structures) + " + " + " | ".join(triggers)
             else:
                 pattern_results[tv_sym] = ""
         else:
-            pattern_results[tv_sym] = " | ".join(detected) if detected else ""
+            all_detected = structures + triggers
+            pattern_results[tv_sym] = " | ".join(all_detected) if all_detected else ""
 
     df_screener["TV_Symbol"] = df_screener["exchange"] + ":" + df_screener["name"]
     df_screener["Detected_Pattern"] = df_screener["TV_Symbol"].map(pattern_results).fillna("")
     
-    if any(pat_config.values()) or combo_mode == "Require Inside Bar INSIDE a Base":
+    if any(pat_config.values()):
         df_screener = df_screener[df_screener["Detected_Pattern"] != ""]
         
     return df_screener
