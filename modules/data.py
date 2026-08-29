@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+import concurrent.futures
 from tradingview_screener import Query, col
 from modules.config import map_to_indian_classification
 
@@ -231,11 +232,12 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
     return 23700.0
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_historical_data_yf_v4(symbols_tuple, period="3mo"):
+def fetch_historical_data_yf_v5(symbols_tuple, period="3mo"):
     """
-    V4: Maximum Speed + Safety. 
-    Restores threads=True for parallel execution but chunks requests to 100 
-    to bypass the Yahoo 'URI Too Long' HTTP 414 error.
+    V5: The Silver Bullet. 
+    Completely abandons yf.download() batching. 
+    Uses ThreadPoolExecutor to fetch single tickers concurrently. 
+    Zero MultiIndex parsing issues and bypasses chunk URL limits completely.
     """
     tickers = []
     sym_map = {}
@@ -248,46 +250,28 @@ def fetch_historical_data_yf_v4(symbols_tuple, period="3mo"):
     data_dict = {}
     if not tickers:
         return data_dict, sym_map
-        
-    chunk_size = 100 # Large enough for speed, small enough to pass URL limits
-    for i in range(0, len(tickers), chunk_size):
-        chunk = tickers[i:i + chunk_size]
+
+    def fetch_single(t):
         try:
-            # THIS IS THE FIX: threads=True restores lightning-fast downloads
-            data = yf.download(chunk, period=period, progress=False, threads=True)
-            if data.empty:
-                continue
-            
-            if len(chunk) == 1:
-                df_t = data.dropna(how='all')
-                if not df_t.empty:
-                    data_dict[chunk[0]] = df_t
-            
-            elif isinstance(data.columns, pd.MultiIndex):
-                level_with_tickers = 1 if chunk[0] in data.columns.get_level_values(1) else 0
-                for t in chunk:
-                    try:
-                        if level_with_tickers == 1 and t in data.columns.get_level_values(1):
-                            df_t = data.xs(t, level=1, axis=1)
-                            df_t = df_t.dropna(how='all')
-                            if not df_t.empty:
-                                data_dict[t] = df_t
-                        elif level_with_tickers == 0 and t in data.columns.get_level_values(0):
-                            df_t = pd.DataFrame()
-                            if 'Open' in data: df_t['Open'] = data['Open'][t]
-                            if 'Close' in data: df_t['Close'] = data['Close'][t]
-                            if 'High' in data: df_t['High'] = data['High'][t]
-                            if 'Low' in data: df_t['Low'] = data['Low'][t]
-                            if 'Volume' in data: df_t['Volume'] = data['Volume'][t]
-                            
-                            df_t = df_t.dropna(how='all')
-                            if not df_t.empty:
-                                data_dict[t] = df_t
-                    except Exception:
-                        pass
+            # Use history() which is completely stable for single tickers
+            df = yf.Ticker(t).history(period=period)
+            if not df.empty and 'Close' in df.columns:
+                clean_df = pd.DataFrame()
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if col in df.columns:
+                        clean_df[col] = df[col]
+                clean_df = clean_df.dropna(how='all')
+                if not clean_df.empty:
+                    return t, clean_df
         except Exception:
             pass
-            
-        time.sleep(0.1) # Tiny safety delay
-            
+        return t, None
+
+    # Execute concurrently with 15 workers (fast enough, but won't trigger IP bans)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        results = executor.map(fetch_single, tickers)
+        for t, df in results:
+            if df is not None:
+                data_dict[t] = df
+
     return data_dict, sym_map
