@@ -230,11 +230,12 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
         pass
     return 23700.0
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_historical_data_yf_v3(symbols_tuple, period="3mo"):
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_historical_data_yf_v4(symbols_tuple, period="3mo"):
     """
-    V3: Renamed to bust cache. 
-    Strictly forces threads=False and adds time.sleep() to bypass Yahoo rate limits.
+    V4: Maximum Speed + Safety. 
+    Restores threads=True for parallel execution but chunks requests to 100 
+    to bypass the Yahoo 'URI Too Long' HTTP 414 error.
     """
     tickers = []
     sym_map = {}
@@ -248,12 +249,12 @@ def fetch_historical_data_yf_v3(symbols_tuple, period="3mo"):
     if not tickers:
         return data_dict, sym_map
         
-    chunk_size = 40
+    chunk_size = 100 # Large enough for speed, small enough to pass URL limits
     for i in range(0, len(tickers), chunk_size):
         chunk = tickers[i:i + chunk_size]
         try:
-            # THIS IS THE FIX: threads=False prevents parallel request bans
-            data = yf.download(chunk, period=period, progress=False, threads=False)
+            # THIS IS THE FIX: threads=True restores lightning-fast downloads
+            data = yf.download(chunk, period=period, progress=False, threads=True)
             if data.empty:
                 continue
             
@@ -287,7 +288,6 @@ def fetch_historical_data_yf_v3(symbols_tuple, period="3mo"):
         except Exception:
             pass
             
-        # THIS IS THE FIX: Stealth delay to bypass rate limits
-        time.sleep(0.5) 
+        time.sleep(0.1) # Tiny safety delay
             
     return data_dict, sym_map
