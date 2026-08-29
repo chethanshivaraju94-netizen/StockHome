@@ -259,10 +259,10 @@ def detect_symmetrical_triangle(df):
 # 3. MASTER PATTERN ENGINE CONTROLLER
 # ==========================================
 def run_pattern_engine(df_screener, pat_config, combo_mode):
-    from modules.data import fetch_historical_data_yf_v5
+    from modules.data import fetch_historical_data_yf_v6
     
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
-    data_dict, sym_map = fetch_historical_data_yf_v5(symbols_tuple, period="3mo")
+    data_dict, sym_map = fetch_historical_data_yf_v6(symbols_tuple, period="3mo")
     
     pattern_results = {}
     
