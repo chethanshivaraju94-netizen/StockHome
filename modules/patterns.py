@@ -77,7 +77,6 @@ def get_atr14(df):
 # 1. ACTION TRIGGERS (DAILY CANDLE TIMING)
 # ==========================================
 def detect_inside_bar(df):
-    """Inside bar with daily range strictly less than ATR14, and volume <= 50 SMA."""
     if len(df) < 15: return False
     h = df['High']
     l = df['Low']
@@ -94,7 +93,6 @@ def detect_inside_bar(df):
     return False
 
 def detect_ema21_shakeout(df):
-    """Pierces 21 EMA intraday, closes in upper 40% of range, range < ATR14."""
     if len(df) < 25: return False
     h = df['High']
     l = df['Low']
@@ -103,11 +101,9 @@ def detect_ema21_shakeout(df):
     ema21 = c.ewm(span=21, adjust=False).mean()
     today_ema = ema21.iloc[-1]
     
-    # Low undercuts 21 EMA, but Close finishes above 21 EMA
     if l.iloc[-1] < today_ema and c.iloc[-1] >= today_ema:
         day_range = h.iloc[-1] - l.iloc[-1]
         if day_range > 0:
-            # Closes in top 40% of range
             close_loc = (c.iloc[-1] - l.iloc[-1]) / day_range
             if close_loc >= 0.60:
                 atr14 = get_atr14(df)
@@ -116,7 +112,6 @@ def detect_ema21_shakeout(df):
     return False
 
 def detect_ema10_shakeout(df):
-    """Pierces 10 EMA intraday, closes in upper 40% of range, range < ATR14."""
     if len(df) < 15: return False
     h = df['High']
     l = df['Low']
@@ -136,16 +131,13 @@ def detect_ema10_shakeout(df):
     return False
 
 def detect_gap_down_reversal(df):
-    """Opens below yesterday's close, reverses to close green in upper 40%, range < ATR14."""
     if len(df) < 15: return False
     h = df['High']
     l = df['Low']
     c = df['Close']
     o = df['Open'] if 'Open' in df.columns else df['Close'].shift(1)
     
-    # Gap down on open relative to yesterday's close
     if o.iloc[-1] < c.iloc[-2]:
-        # Green reversal candle (Close > Open)
         if c.iloc[-1] > o.iloc[-1]:
             day_range = h.iloc[-1] - l.iloc[-1]
             if day_range > 0:
@@ -161,7 +153,6 @@ def detect_gap_down_reversal(df):
 # 2. BASE STRUCTURES (THE OVERALL SETUP)
 # ==========================================
 def detect_flat_base(df):
-    """10+ bars constrained within a tight 15% band with Vol Dry Up."""
     if len(df) < 15: return False
     h = df['High']
     l = df['Low']
@@ -182,7 +173,6 @@ def detect_flat_base(df):
     return False
 
 def detect_bull_flag(df):
-    """Sharp pole >= 20% followed by tight retracement <= 38.2%."""
     if len(df) < 25: return False
     h = df['High']
     l = df['Low']
@@ -269,10 +259,10 @@ def detect_symmetrical_triangle(df):
 # 3. MASTER PATTERN ENGINE CONTROLLER
 # ==========================================
 def run_pattern_engine(df_screener, pat_config, combo_mode):
-    from modules.data import fetch_historical_data_yf_v2
+    from modules.data import fetch_historical_data_yf_v3
     
     symbols_tuple = tuple((df_screener["exchange"] + ":" + df_screener["name"]).tolist())
-    data_dict, sym_map = fetch_historical_data_yf_v2(symbols_tuple, period="3mo")
+    data_dict, sym_map = fetch_historical_data_yf_v3(symbols_tuple, period="3mo")
     
     pattern_results = {}
     
