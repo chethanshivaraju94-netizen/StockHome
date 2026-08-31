@@ -1011,7 +1011,7 @@ def render_screener_tab():
                 st.caption("💡 Check rows above to enable actions.")
 
             # =========================================================
-            # 📊 EMBEDDED CHART STUDIO (ULTIMATE FALLBACK CASCADE)
+            # 📊 EMBEDDED CHART STUDIO (RAW API BYPASS)
             # =========================================================
             if len(selected_rows) == 1:
                 st.markdown("---")
@@ -1025,75 +1025,60 @@ def render_screener_tab():
 
                 st.subheader(f"📈 Chart Studio: {active_chart_sym}")
                 st.caption(
-                    "Draw manual trendlines, rays, or horizontal resistance levels directly on the"
-                    " chart."
+                    "Draw manual trendlines, rays, or horizontal resistance levels directly on the chart."
                 )
 
-                with st.spinner(f"⚡ Loading candle data for {clean_ticker}..."):
+                with st.spinner(f"⚡ Loading candle data for {clean_ticker} (Bypassing yfinance)..."):
                     try:
-                        session = requests.Session()
-                        session.headers.update({
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                            'Accept': '*/*',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                            'Connection': 'keep-alive'
-                        })
-                        
-                        df_chart = pd.DataFrame()
+                        # Raw API Bypass Function
+                        def fetch_yahoo_direct(symbol, interval="30m", rng="60d"):
+                            url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?range={rng}&interval={interval}"
+                            headers = {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Accept': 'application/json'
+                            }
+                            try:
+                                res = requests.get(url, headers=headers, timeout=5)
+                                if res.status_code == 200:
+                                    data = res.json()
+                                    result = data.get('chart', {}).get('result', [])
+                                    if result:
+                                        timestamps = result[0].get('timestamp', [])
+                                        indicators = result[0].get('indicators', {}).get('quote', [{}])[0]
+                                        if timestamps and indicators:
+                                            df_raw = pd.DataFrame({
+                                                'Date': pd.to_datetime(timestamps, unit='s'),
+                                                'Open': indicators.get('open', []),
+                                                'High': indicators.get('high', []),
+                                                'Low': indicators.get('low', []),
+                                                'Close': indicators.get('close', []),
+                                                'Volume': indicators.get('volume', [])
+                                            }).dropna()
+                                            return df_raw
+                            except Exception:
+                                pass
+                            return pd.DataFrame()
+
+                        # Waterfall Execution
+                        df_chart = fetch_yahoo_direct(yf_sym, "30m", "60d")
                         interval_used = "30m"
-                        
-                        # 1. Try yf.download for 30m
-                        try:
-                            df_chart = yf.download(yf_sym, period="60d", interval="30m", progress=False, session=session)
-                        except Exception:
-                            pass
-                            
-                        # 2. Try yf.Ticker.history for 30m
-                        if df_chart is None or df_chart.empty:
-                            try:
-                                t_obj = yf.Ticker(yf_sym, session=session)
-                                df_chart = t_obj.history(period="60d", interval="30m")
-                            except Exception:
-                                pass
-                                
-                        # 3. Fallback to 15m
-                        if df_chart is None or df_chart.empty:
-                            try:
-                                df_chart = yf.download(yf_sym, period="60d", interval="15m", progress=False, session=session)
-                                interval_used = "15m"
-                            except Exception:
-                                pass
-                                
-                        # 4. Fallback to 60m
-                        if df_chart is None or df_chart.empty:
-                            try:
-                                df_chart = yf.download(yf_sym, period="60d", interval="60m", progress=False, session=session)
-                                interval_used = "60m"
-                            except Exception:
-                                pass
-                                
-                        # 5. Ultimate Fallback: Daily (1d) - Almost never rate limited
-                        if df_chart is None or df_chart.empty:
-                            try:
-                                df_chart = yf.download(yf_sym, period="6mo", interval="1d", progress=False, session=session)
-                                interval_used = "1d"
-                            except Exception:
-                                pass
 
-                        # Flatten MultiIndex columns if returned by yf.download for a single ticker
-                        if df_chart is not None and not df_chart.empty:
-                            if isinstance(df_chart.columns, pd.MultiIndex):
-                                df_chart.columns = df_chart.columns.droplevel(1)
+                        if df_chart.empty:
+                            df_chart = fetch_yahoo_direct(yf_sym, "15m", "60d")
+                            interval_used = "15m"
 
-                        if df_chart is not None and not df_chart.empty and len(df_chart) > 0:
+                        if df_chart.empty:
+                            df_chart = fetch_yahoo_direct(yf_sym, "1d", "6mo")
+                            interval_used = "1d"
+
+                        if not df_chart.empty and len(df_chart) > 0:
                             if interval_used != "30m":
                                 st.info(f"⚠️ 30m interval unavailable. Displaying **{interval_used}** candles instead.")
                             
                             render_kline_chart(df_chart, symbol_name=f"{active_chart_sym} ({interval_used})", height=620)
                         else:
                             st.error(
-                                f"Could not retrieve ANY chart data for {active_chart_sym} from"
-                                " Yahoo Finance. The API is actively blocking the request (Rate Limit)."
+                                f"Could not retrieve ANY chart data for {active_chart_sym}. The API is actively blocking the Streamlit Cloud IP."
                             )
                     except Exception as e:
                         st.error(f"Error loading Chart Studio: {e}")
