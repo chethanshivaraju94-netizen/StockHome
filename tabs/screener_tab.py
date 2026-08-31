@@ -1,5 +1,6 @@
 import math
 import time
+import requests
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -1030,22 +1031,47 @@ def render_screener_tab():
 
                 with st.spinner(f"⚡ Loading 30m intraday candle data for {clean_ticker}..."):
                     try:
-                        # Use Ticker().history() instead of download() for maximum intraday stability
-                        ticker_obj = yf.Ticker(yf_sym)
-                        df_30m = ticker_obj.history(period="60d", interval="30m")
+                        # Create a stealth browser session to bypass Yahoo's strict rate limits
+                        session = requests.Session()
+                        session.headers.update({
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                        })
                         
-                        # Fallback to 15m if Yahoo restricts the 30m feed for this specific stock
+                        ticker_obj = yf.Ticker(yf_sym, session=session)
+                        df_30m = pd.DataFrame()
+                        
+                        # Implement a 3-attempt backoff loop for the 30m fetch
+                        for attempt in range(3):
+                            try:
+                                df_30m = ticker_obj.history(period="60d", interval="30m")
+                                if not df_30m.empty:
+                                    break
+                            except Exception as e:
+                                if "429" in str(e) or "Rate limited" in str(e) or "Too Many Requests" in str(e):
+                                    time.sleep(2 ** attempt)
+                                else:
+                                    break
+
+                        # Fallback to 15m if Yahoo strictly blocks the 30m feed
                         if df_30m.empty:
-                            df_30m = ticker_obj.history(period="60d", interval="15m")
-                            if not df_30m.empty:
-                                st.info("⚠️ 30m interval unavailable from Yahoo Finance. Displaying 15m candles instead.")
+                            for attempt in range(3):
+                                try:
+                                    df_30m = ticker_obj.history(period="60d", interval="15m")
+                                    if not df_30m.empty:
+                                        st.info("⚠️ 30m interval unavailable from Yahoo Finance. Displaying 15m candles instead.")
+                                        break
+                                except Exception as e:
+                                    if "429" in str(e) or "Rate limited" in str(e):
+                                        time.sleep(2 ** attempt)
+                                    else:
+                                        break
 
                         if not df_30m.empty and len(df_30m) > 0:
                             render_kline_chart(df_30m, symbol_name=active_chart_sym, height=620)
                         else:
                             st.warning(
                                 f"Could not retrieve intraday data for {active_chart_sym} from"
-                                " Yahoo Finance. The API may be temporarily blocking intraday requests."
+                                " Yahoo Finance. The API is actively blocking the request (Rate Limit)."
                             )
                     except Exception as e:
                         st.error(f"Error loading Chart Studio: {e}")
