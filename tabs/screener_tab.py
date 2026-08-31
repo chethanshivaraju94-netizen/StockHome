@@ -1011,7 +1011,7 @@ def render_screener_tab():
                 st.caption("💡 Check rows above to enable actions.")
 
             # =========================================================
-            # 📊 EMBEDDED 30-MINUTE CHART STUDIO (SINGLE SELECTION)
+            # 📊 EMBEDDED CHART STUDIO (ULTIMATE FALLBACK CASCADE)
             # =========================================================
             if len(selected_rows) == 1:
                 st.markdown("---")
@@ -1023,54 +1023,76 @@ def render_screener_tab():
                     else f"{clean_ticker}.NS"
                 )
 
-                st.subheader(f"📈 30-Minute Chart Studio: {active_chart_sym}")
+                st.subheader(f"📈 Chart Studio: {active_chart_sym}")
                 st.caption(
                     "Draw manual trendlines, rays, or horizontal resistance levels directly on the"
                     " chart."
                 )
 
-                with st.spinner(f"⚡ Loading 30m intraday candle data for {clean_ticker}..."):
+                with st.spinner(f"⚡ Loading candle data for {clean_ticker}..."):
                     try:
-                        # Create a stealth browser session to bypass Yahoo's strict rate limits
                         session = requests.Session()
                         session.headers.update({
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                            'Accept': '*/*',
+                            'Accept-Encoding': 'gzip, deflate, br',
+                            'Connection': 'keep-alive'
                         })
                         
-                        ticker_obj = yf.Ticker(yf_sym, session=session)
-                        df_30m = pd.DataFrame()
+                        df_chart = pd.DataFrame()
+                        interval_used = "30m"
                         
-                        # Implement a 3-attempt backoff loop for the 30m fetch
-                        for attempt in range(3):
+                        # 1. Try yf.download for 30m
+                        try:
+                            df_chart = yf.download(yf_sym, period="60d", interval="30m", progress=False, session=session)
+                        except Exception:
+                            pass
+                            
+                        # 2. Try yf.Ticker.history for 30m
+                        if df_chart is None or df_chart.empty:
                             try:
-                                df_30m = ticker_obj.history(period="60d", interval="30m")
-                                if not df_30m.empty:
-                                    break
-                            except Exception as e:
-                                if "429" in str(e) or "Rate limited" in str(e) or "Too Many Requests" in str(e):
-                                    time.sleep(2 ** attempt)
-                                else:
-                                    break
+                                t_obj = yf.Ticker(yf_sym, session=session)
+                                df_chart = t_obj.history(period="60d", interval="30m")
+                            except Exception:
+                                pass
+                                
+                        # 3. Fallback to 15m
+                        if df_chart is None or df_chart.empty:
+                            try:
+                                df_chart = yf.download(yf_sym, period="60d", interval="15m", progress=False, session=session)
+                                interval_used = "15m"
+                            except Exception:
+                                pass
+                                
+                        # 4. Fallback to 60m
+                        if df_chart is None or df_chart.empty:
+                            try:
+                                df_chart = yf.download(yf_sym, period="60d", interval="60m", progress=False, session=session)
+                                interval_used = "60m"
+                            except Exception:
+                                pass
+                                
+                        # 5. Ultimate Fallback: Daily (1d) - Almost never rate limited
+                        if df_chart is None or df_chart.empty:
+                            try:
+                                df_chart = yf.download(yf_sym, period="6mo", interval="1d", progress=False, session=session)
+                                interval_used = "1d"
+                            except Exception:
+                                pass
 
-                        # Fallback to 15m if Yahoo strictly blocks the 30m feed
-                        if df_30m.empty:
-                            for attempt in range(3):
-                                try:
-                                    df_30m = ticker_obj.history(period="60d", interval="15m")
-                                    if not df_30m.empty:
-                                        st.info("⚠️ 30m interval unavailable from Yahoo Finance. Displaying 15m candles instead.")
-                                        break
-                                except Exception as e:
-                                    if "429" in str(e) or "Rate limited" in str(e):
-                                        time.sleep(2 ** attempt)
-                                    else:
-                                        break
+                        # Flatten MultiIndex columns if returned by yf.download for a single ticker
+                        if df_chart is not None and not df_chart.empty:
+                            if isinstance(df_chart.columns, pd.MultiIndex):
+                                df_chart.columns = df_chart.columns.droplevel(1)
 
-                        if not df_30m.empty and len(df_30m) > 0:
-                            render_kline_chart(df_30m, symbol_name=active_chart_sym, height=620)
+                        if df_chart is not None and not df_chart.empty and len(df_chart) > 0:
+                            if interval_used != "30m":
+                                st.info(f"⚠️ 30m interval unavailable. Displaying **{interval_used}** candles instead.")
+                            
+                            render_kline_chart(df_chart, symbol_name=f"{active_chart_sym} ({interval_used})", height=620)
                         else:
-                            st.warning(
-                                f"Could not retrieve intraday data for {active_chart_sym} from"
+                            st.error(
+                                f"Could not retrieve ANY chart data for {active_chart_sym} from"
                                 " Yahoo Finance. The API is actively blocking the request (Rate Limit)."
                             )
                     except Exception as e:
