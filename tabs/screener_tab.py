@@ -692,3 +692,32 @@ def render_screener_tab():
                 with st.expander("📋 View / Copy All Tickers (Full Unbatched String)", expanded=False):
                     tv_watchlist_string = ", ".join(filtered_symbols)
                     st.code(tv_watchlist_string, language="text")
+
+            # =========================================================================
+            # 📈 THE CHART STUDIO BRIDGE
+            # Automatically open the 30-minute chart when exactly ONE row is selected
+            # =========================================================================
+            if len(selected_rows) == 1:
+                active_sym = selected_rows[0]
+                clean_sym_name = active_sym.split(":")[-1].strip().upper()
+                
+                # Format for Yahoo Finance
+                yf_sym = f"{clean_sym_name}.BO" if "BSE" in active_sym else f"{clean_sym_name}.NS"
+                
+                st.markdown("---")
+                st.subheader(f"📈 30-Minute Chart Studio: {clean_sym_name}")
+                st.caption("Draw your descending trendlines here. The backend extracts your coordinates automatically.")
+                
+                with st.spinner(f"Downloading high-resolution 30m intraday data for {clean_sym_name}..."):
+                    import yfinance as yf
+                    # Fetch 60 days of 30-minute intervals
+                    df_30m = yf.download(yf_sym, period="60d", interval="30m", progress=False, threads=False)
+                    
+                    if not df_30m.empty:
+                        try:
+                            from modules.chart_studio import render_interactive_chart
+                            render_interactive_chart(clean_sym_name, df_30m)
+                        except Exception as e:
+                            st.error(f"Error rendering chart: {e}")
+                    else:
+                        st.warning(f"Could not retrieve 30m data for {clean_sym_name}. It may be illiquid or restricted on Yahoo Finance.")
