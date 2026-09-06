@@ -235,29 +235,17 @@ def render_screener_tab():
             df = df.drop(columns=["_is_circuit_excluded"])
 
         # =========================================================
-        # 🚀 CUSTOM TRADINGVIEW FILTERS (PRICE, CHG%, VOL, REL VOL)
+        # 🚀 CUSTOM TRADINGVIEW FILTERS LOGIC (From Sidebar State)
         # =========================================================
-        st.markdown("---")
-        with st.expander("🚀 Custom TradingView Volume & Price Filters", expanded=True):
-            st.markdown("Apply additional base filters like minimum price, intraday change, and volume thresholds.")
-            
-            c_f1, c_f2, c_f3, c_f4 = st.columns(4)
-            with c_f1:
-                en_price = st.checkbox("Min Price (₹)", value=st.session_state.get("f_en_price_chk", True), key="f_en_price_chk")
-                min_price = st.number_input("Price >=", value=st.session_state.get("f_min_price_val", 30.0), disabled=not en_price, key="f_min_price_val")
-            with c_f2:
-                en_chg = st.checkbox("Min Change %", value=st.session_state.get("f_en_chg_chk", True), key="f_en_chg_chk")
-                min_chg_pct = st.number_input("Chg % >", value=st.session_state.get("f_min_chg_val", 3.0), disabled=not en_chg, key="f_min_chg_val")
-            with c_f3:
-                en_avg_vol = st.checkbox("Avg Vol (K)", value=st.session_state.get("f_en_avg_vol_chk", True), key="f_en_avg_vol_chk")
-                c_v1, c_v2 = st.columns([1, 1])
-                with c_v1:
-                    vol_period_days_tv = st.selectbox("Days", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period_days_tv", 30)), disabled=not en_avg_vol, key="f_vol_period_days_tv")
-                with c_v2:
-                    min_avg_vol_k = st.number_input("Vol >", value=st.session_state.get("f_min_avg_vol_k_val", 200.0), disabled=not en_avg_vol, key="f_min_avg_vol_k_val")
-            with c_f4:
-                en_rel_vol = st.checkbox("Relative Volume", value=st.session_state.get("f_en_rel_vol_chk", True), key="f_en_rel_vol_chk")
-                min_rel_vol = st.number_input("Rel Vol >", value=st.session_state.get("f_min_rel_vol_val", 3.0), disabled=not en_rel_vol, key="f_min_rel_vol_val")
+        en_price = st.session_state.get("f_en_price_chk", True)
+        min_price = st.session_state.get("f_min_price_val", 30.0)
+        en_chg = st.session_state.get("f_en_chg_chk", True)
+        min_chg_pct = st.session_state.get("f_min_chg_val", 3.0)
+        en_avg_vol = st.session_state.get("f_en_avg_vol_chk", True)
+        vol_period_days_tv = st.session_state.get("f_vol_period_days_tv", 30)
+        min_avg_vol_k = st.session_state.get("f_min_avg_vol_k_val", 200.0)
+        en_rel_vol = st.session_state.get("f_en_rel_vol_chk", True)
+        min_rel_vol = st.session_state.get("f_min_rel_vol_val", 3.0)
 
         if en_price:
             df = df[df["close"] >= min_price]
