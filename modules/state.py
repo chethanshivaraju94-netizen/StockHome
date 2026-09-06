@@ -191,6 +191,8 @@ def load_filter_presets():
             "f_min_avg_vol_k_val": 200.0,
             "f_en_rel_vol_chk": True,
             "f_min_rel_vol_val": 3.0,
+            "f_en_new_high_chk": False,
+            "f_new_high_period_val": "1 month",
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
