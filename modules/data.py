@@ -141,7 +141,9 @@ def fetch_screener_data(exchanges, min_mcap, vol_period_days, ma_columns_to_fetc
     tv_vol_col = f"average_volume_{vol_period_days}d_calc"
     select_cols = (
         ["name", "close", "change", "high", "low", "open", "volume", "market_cap_basic",
-         tv_vol_col, "ADR", "price_52_week_high", "price_52_week_low", "exchange", "type",
+         tv_vol_col, "average_volume_10d_calc", "average_volume_30d_calc", 
+         "average_volume_60d_calc", "average_volume_90d_calc", "relative_volume_10d_calc", 
+         "ADR", "price_52_week_high", "price_52_week_low", "exchange", "type",
          "industry", "sector", "index", "ipo_offer_date", "offer_date", "recent_ipo_date",
          "ipo_date", "listing_date", "Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.YTD", "Perf.Y"]
         + EPS_Q_ALIASES + SALES_Q_ALIASES
@@ -149,6 +151,10 @@ def fetch_screener_data(exchanges, min_mcap, vol_period_days, ma_columns_to_fetc
     for c in ma_columns_to_fetch:
         if c not in select_cols:
             select_cols.append(c)
+            
+    # Remove any duplicates generated dynamically
+    select_cols = list(set(select_cols))
+    
     q = (
         Query().set_markets("india")
         .select(*select_cols)
@@ -231,11 +237,6 @@ def fetch_nifty500_close_on_date(date_str, df_mm=None):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_historical_data_yf_v7(symbols_tuple, period="3mo"):
-    """
-    V7: Reverted to the pristine, robust, native download.
-    No artificial chunking, no over-engineered threading.
-    Let yfinance handle the batching internally, ensuring stable column extraction.
-    """
     tickers = []
     sym_map = {}
     for s in symbols_tuple:
@@ -248,7 +249,6 @@ def fetch_historical_data_yf_v7(symbols_tuple, period="3mo"):
     if not tickers: 
         return data_dict, sym_map
 
-    # Native yfinance download (fastest & most reliable)
     data = yf.download(tickers, period=period, progress=False)
 
     if data.empty: 
@@ -261,7 +261,6 @@ def fetch_historical_data_yf_v7(symbols_tuple, period="3mo"):
     else:
         for t in tickers:
             try:
-                # The indestructible, version-agnostic column parser
                 df_t = pd.DataFrame()
                 if 'Open' in data: df_t['Open'] = data['Open'][t]
                 if 'High' in data: df_t['High'] = data['High'][t]
