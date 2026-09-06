@@ -94,6 +94,8 @@ with col_load:
             st.session_state["f_min_avg_vol_k_val"] = p.get("f_min_avg_vol_k_val", 200.0)
             st.session_state["f_en_rel_vol_chk"] = p.get("f_en_rel_vol_chk", True)
             st.session_state["f_min_rel_vol_val"] = p.get("f_min_rel_vol_val", 3.0)
+            st.session_state["f_en_new_high_chk"] = p.get("f_en_new_high_chk", False)
+            st.session_state["f_new_high_period_val"] = p.get("f_new_high_period_val", "1 month")
 
             ma_cfgs = p.get("ma_configs", [])
             for i, cfg in enumerate(ma_cfgs, 1):
@@ -150,6 +152,8 @@ with col_update:
                 "f_min_avg_vol_k_val": st.session_state.get("f_min_avg_vol_k_val", 200.0),
                 "f_en_rel_vol_chk": st.session_state.get("f_en_rel_vol_chk", True),
                 "f_min_rel_vol_val": st.session_state.get("f_min_rel_vol_val", 3.0),
+                "f_en_new_high_chk": st.session_state.get("f_en_new_high_chk", False),
+                "f_new_high_period_val": st.session_state.get("f_new_high_period_val", "1 month"),
                 "ma_configs": [
                     {
                         "en": st.session_state.get(f"ma_{i}_en", False),
@@ -220,6 +224,8 @@ with st.sidebar.expander("➕ Save Current Filters as New Preset"):
                     "f_min_avg_vol_k_val": st.session_state.get("f_min_avg_vol_k_val", 200.0),
                     "f_en_rel_vol_chk": st.session_state.get("f_en_rel_vol_chk", True),
                     "f_min_rel_vol_val": st.session_state.get("f_min_rel_vol_val", 3.0),
+                    "f_en_new_high_chk": st.session_state.get("f_en_new_high_chk", False),
+                    "f_new_high_period_val": st.session_state.get("f_new_high_period_val", "1 month"),
                     "ma_configs": [
                         {
                             "en": st.session_state.get(f"ma_{i}_en", False),
@@ -260,12 +266,12 @@ with c_c2:
     st.number_input("Chg % >", value=st.session_state.get("f_min_chg_val", 3.0), disabled=not en_chg, key="f_min_chg_val", label_visibility="collapsed")
 
 st.sidebar.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
-en_avg_vol = st.sidebar.checkbox("Avg Vol (K)", value=st.session_state.get("f_en_avg_vol_chk", True), key="f_en_avg_vol_chk")
+en_avg_vol = st.sidebar.checkbox("Avg Vol", value=st.session_state.get("f_en_avg_vol_chk", True), key="f_en_avg_vol_chk")
 c_v1, c_v2 = st.sidebar.columns([1, 1])
 with c_v1:
     st.selectbox("Days", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period_days_tv", 30)), disabled=not en_avg_vol, key="f_vol_period_days_tv")
 with c_v2:
-    st.number_input("Vol >", value=st.session_state.get("f_min_avg_vol_k_val", 200.0), disabled=not en_avg_vol, key="f_min_avg_vol_k_val", label_visibility="collapsed")
+    st.number_input("Vol >", value=st.session_state.get("f_min_avg_vol_k_val", 200000.0), disabled=not en_avg_vol, key="f_min_avg_vol_k_val", label_visibility="collapsed")
 
 c_r1, c_r2 = st.sidebar.columns([1.1, 0.9])
 with c_r1:
@@ -273,6 +279,19 @@ with c_r1:
 with c_r2:
     st.number_input("Rel Vol >", value=st.session_state.get("f_min_rel_vol_val", 3.0), disabled=not en_rel_vol, key="f_min_rel_vol_val", label_visibility="collapsed")
 
+st.sidebar.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+c_nh1, c_nh2 = st.sidebar.columns([1.1, 0.9])
+with c_nh1:
+    en_new_high = st.checkbox("New High", value=st.session_state.get("f_en_new_high_chk", False), key="f_en_new_high_chk")
+with c_nh2:
+    st.selectbox(
+        "Period", 
+        options=["1 month", "3 months", "6 months", "52 weeks", "All Time"], 
+        index=["1 month", "3 months", "6 months", "52 weeks", "All Time"].index(st.session_state.get("f_new_high_period_val", "1 month")), 
+        disabled=not en_new_high, 
+        key="f_new_high_period_val", 
+        label_visibility="collapsed"
+    )
 
 # ----------------------------------------------------
 # 1. EXCHANGE & UNIVERSE
