@@ -143,7 +143,8 @@ def fetch_screener_data(exchanges, min_mcap, vol_period_days, ma_columns_to_fetc
         ["name", "close", "change", "high", "low", "open", "volume", "market_cap_basic",
          tv_vol_col, "average_volume_10d_calc", "average_volume_30d_calc", 
          "average_volume_60d_calc", "average_volume_90d_calc", "relative_volume_10d_calc", 
-         "ADR", "price_52_week_high", "price_52_week_low", "exchange", "type",
+         "ADR", "price_52_week_high", "price_52_week_low", "price_1_month_high", 
+         "price_3_month_high", "price_6_month_high", "price_all_time_high", "exchange", "type",
          "industry", "sector", "index", "ipo_offer_date", "offer_date", "recent_ipo_date",
          "ipo_date", "listing_date", "Perf.W", "Perf.1M", "Perf.3M", "Perf.6M", "Perf.YTD", "Perf.Y"]
         + EPS_Q_ALIASES + SALES_Q_ALIASES
