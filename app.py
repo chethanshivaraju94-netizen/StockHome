@@ -84,6 +84,17 @@ with col_load:
             st.session_state["f_perf_labels"] = p.get("selected_perf_labels", ["1 Week", "1 Month", "3 Months", "6 Months"])
             st.session_state["f_max_res"] = p.get("max_results", 4000)
 
+            # Load new TV Filters
+            st.session_state["f_en_price_chk"] = p.get("f_en_price_chk", True)
+            st.session_state["f_min_price_val"] = p.get("f_min_price_val", 30.0)
+            st.session_state["f_en_chg_chk"] = p.get("f_en_chg_chk", True)
+            st.session_state["f_min_chg_val"] = p.get("f_min_chg_val", 3.0)
+            st.session_state["f_en_avg_vol_chk"] = p.get("f_en_avg_vol_chk", True)
+            st.session_state["f_vol_period_days_tv"] = p.get("f_vol_period_days_tv", 30)
+            st.session_state["f_min_avg_vol_k_val"] = p.get("f_min_avg_vol_k_val", 200.0)
+            st.session_state["f_en_rel_vol_chk"] = p.get("f_en_rel_vol_chk", True)
+            st.session_state["f_min_rel_vol_val"] = p.get("f_min_rel_vol_val", 3.0)
+
             ma_cfgs = p.get("ma_configs", [])
             for i, cfg in enumerate(ma_cfgs, 1):
                 st.session_state[f"ma_{i}_en"] = cfg.get("en", False)
@@ -130,6 +141,15 @@ with col_update:
                 "circuit_val": st.session_state.get("f_circuit_val", ["2%", "5%", "10%"]),
                 "selected_perf_labels": st.session_state.get("f_perf_labels", ["1 Week", "1 Month", "3 Months", "6 Months"]),
                 "max_results": st.session_state.get("f_max_res", 4000),
+                "f_en_price_chk": st.session_state.get("f_en_price_chk", True),
+                "f_min_price_val": st.session_state.get("f_min_price_val", 30.0),
+                "f_en_chg_chk": st.session_state.get("f_en_chg_chk", True),
+                "f_min_chg_val": st.session_state.get("f_min_chg_val", 3.0),
+                "f_en_avg_vol_chk": st.session_state.get("f_en_avg_vol_chk", True),
+                "f_vol_period_days_tv": st.session_state.get("f_vol_period_days_tv", 30),
+                "f_min_avg_vol_k_val": st.session_state.get("f_min_avg_vol_k_val", 200.0),
+                "f_en_rel_vol_chk": st.session_state.get("f_en_rel_vol_chk", True),
+                "f_min_rel_vol_val": st.session_state.get("f_min_rel_vol_val", 3.0),
                 "ma_configs": [
                     {
                         "en": st.session_state.get(f"ma_{i}_en", False),
@@ -191,6 +211,15 @@ with st.sidebar.expander("➕ Save Current Filters as New Preset"):
                     "circuit_val": st.session_state.get("f_circuit_val", ["2%", "5%", "10%"]),
                     "selected_perf_labels": st.session_state.get("f_perf_labels", ["1 Week", "1 Month", "3 Months", "6 Months"]),
                     "max_results": st.session_state.get("f_max_res", 4000),
+                    "f_en_price_chk": st.session_state.get("f_en_price_chk", True),
+                    "f_min_price_val": st.session_state.get("f_min_price_val", 30.0),
+                    "f_en_chg_chk": st.session_state.get("f_en_chg_chk", True),
+                    "f_min_chg_val": st.session_state.get("f_min_chg_val", 3.0),
+                    "f_en_avg_vol_chk": st.session_state.get("f_en_avg_vol_chk", True),
+                    "f_vol_period_days_tv": st.session_state.get("f_vol_period_days_tv", 30),
+                    "f_min_avg_vol_k_val": st.session_state.get("f_min_avg_vol_k_val", 200.0),
+                    "f_en_rel_vol_chk": st.session_state.get("f_en_rel_vol_chk", True),
+                    "f_min_rel_vol_val": st.session_state.get("f_min_rel_vol_val", 3.0),
                     "ma_configs": [
                         {
                             "en": st.session_state.get(f"ma_{i}_en", False),
@@ -215,8 +244,40 @@ st.sidebar.markdown("---")
 st.sidebar.caption("⚡ **Auto-Update Enabled:** Adjusting any filter below updates results instantly.")
 
 # ----------------------------------------------------
+# 0. CUSTOM TV FILTERS
+# ----------------------------------------------------
+st.sidebar.header("0. Custom TV Filters")
+c_p1, c_p2 = st.sidebar.columns([1.1, 0.9])
+with c_p1:
+    en_price = st.checkbox("Min Price (₹)", value=st.session_state.get("f_en_price_chk", True), key="f_en_price_chk")
+with c_p2:
+    st.number_input("Price >=", value=st.session_state.get("f_min_price_val", 30.0), disabled=not en_price, key="f_min_price_val", label_visibility="collapsed")
+
+c_c1, c_c2 = st.sidebar.columns([1.1, 0.9])
+with c_c1:
+    en_chg = st.checkbox("Min Chg %", value=st.session_state.get("f_en_chg_chk", True), key="f_en_chg_chk")
+with c_c2:
+    st.number_input("Chg % >", value=st.session_state.get("f_min_chg_val", 3.0), disabled=not en_chg, key="f_min_chg_val", label_visibility="collapsed")
+
+st.sidebar.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+en_avg_vol = st.sidebar.checkbox("Avg Vol (K)", value=st.session_state.get("f_en_avg_vol_chk", True), key="f_en_avg_vol_chk")
+c_v1, c_v2 = st.sidebar.columns([1, 1])
+with c_v1:
+    st.selectbox("Days", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period_days_tv", 30)), disabled=not en_avg_vol, key="f_vol_period_days_tv")
+with c_v2:
+    st.number_input("Vol >", value=st.session_state.get("f_min_avg_vol_k_val", 200.0), disabled=not en_avg_vol, key="f_min_avg_vol_k_val", label_visibility="collapsed")
+
+c_r1, c_r2 = st.sidebar.columns([1.1, 0.9])
+with c_r1:
+    en_rel_vol = st.checkbox("Rel Vol", value=st.session_state.get("f_en_rel_vol_chk", True), key="f_en_rel_vol_chk")
+with c_r2:
+    st.number_input("Rel Vol >", value=st.session_state.get("f_min_rel_vol_val", 3.0), disabled=not en_rel_vol, key="f_min_rel_vol_val", label_visibility="collapsed")
+
+
+# ----------------------------------------------------
 # 1. EXCHANGE & UNIVERSE
 # ----------------------------------------------------
+st.sidebar.markdown("---")
 st.sidebar.header("1. Exchange & Universe")
 st.sidebar.multiselect("Select Exchanges:", options=["NSE", "BSE"], default=st.session_state.get("f_exchanges", ["NSE", "BSE"]), key="f_exchanges")
 
@@ -246,7 +307,7 @@ st.sidebar.header("2. Fundamental, Liquidity & IPO Date")
 en_mcap = st.sidebar.checkbox("Filter by Min Market Cap", value=st.session_state.get("f_en_mcap", True), key="f_en_mcap")
 st.sidebar.number_input("Min Market Cap (₹ Crores):", min_value=0, value=st.session_state.get("f_min_mcap", 1000), step=100, key="f_min_mcap", disabled=not en_mcap)
 
-st.sidebar.selectbox("Average Volume Period:", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period", 60)), format_func=lambda x: f"{x} Days", key="f_vol_period")
+st.sidebar.selectbox("Average Volume Period (Total Value):", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period", 60)), format_func=lambda x: f"{x} Days", key="f_vol_period")
 
 en_vol = st.sidebar.checkbox("Filter by Min Avg Rupee Volume", value=st.session_state.get("f_en_vol", True), key="f_en_vol")
 st.sidebar.number_input(f"Min Avg Rupee Volume (₹ Cr):", min_value=0.0, value=st.session_state.get("f_min_vol", 5.0), step=0.5, key="f_min_vol", disabled=not en_vol)
