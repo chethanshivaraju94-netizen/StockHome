@@ -171,7 +171,7 @@ def render_screener_tab():
         numeric_cols = [
             "market_cap_basic", "close", "change", "high", "low", "open",
             "volume", tv_vol_col, "ADR", "price_52_week_high", "price_52_week_low",
-            "price_1_month_high", "price_3_month_high", "price_6_month_high", "price_all_time_high"
+            "High.1M", "High.3M", "High.6M", "High.All"
         ] + ma_cols_to_fetch
         for c in numeric_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -260,6 +260,7 @@ def render_screener_tab():
             selected_tv_vol_col = f"average_volume_{vol_period_days_tv}d_calc"
             if selected_tv_vol_col in df.columns:
                 df[selected_tv_vol_col] = pd.to_numeric(df[selected_tv_vol_col], errors="coerce")
+                # Removed the * 1000 multiplier to support exact raw volume inputs
                 df = df[df[selected_tv_vol_col] >= min_avg_vol_k]
         if en_rel_vol and "relative_volume_10d_calc" in df.columns:
             df["relative_volume_10d_calc"] = pd.to_numeric(df["relative_volume_10d_calc"], errors="coerce")
@@ -267,16 +268,16 @@ def render_screener_tab():
             
         if en_new_high:
             period_map = {
-                "1 month": "price_1_month_high",
-                "3 months": "price_3_month_high",
-                "6 months": "price_6_month_high",
+                "1 month": "High.1M",
+                "3 months": "High.3M",
+                "6 months": "High.6M",
                 "52 weeks": "price_52_week_high",
-                "All Time": "price_all_time_high"
+                "All Time": "High.All"
             }
             high_col = period_map.get(new_high_period)
             if high_col in df.columns and "high" in df.columns:
-                df[high_col] = pd.to_numeric(df[high_col], errors="coerce")
-                df["high"] = pd.to_numeric(df["high"], errors="coerce")
+                df[high_col] = pd.to_numeric(df[high_col], errors="coerce").round(2)
+                df["high"] = pd.to_numeric(df["high"], errors="coerce").round(2)
                 df = df[df["high"] >= df[high_col]]
 
         # =========================================================
