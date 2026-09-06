@@ -34,7 +34,7 @@ def get_left_aligned_column_config(col_list):
             cfg[col] = st.column_config.Column(col, alignment="left", width=220)
         elif col == "Industry":
             cfg[col] = st.column_config.Column(col, alignment="left", width=250)
-        elif col in ["Close", "Change %", "ADR %"]:
+        elif col in ["Close", "Change %", "ADR %", "Rel Vol"]:
             cfg[col] = st.column_config.Column(col, alignment="left", width=85)
         elif col in ["EPS Q YoY %", "Sales Q YoY %", "IPO Date"]:
             cfg[col] = st.column_config.Column(col, alignment="left", width=110)
@@ -99,7 +99,7 @@ def color_scale_2pt(val, v_min, v_max, c_min=(255, 255, 255), c_max=(99, 190, 12
         ratio = (v - v_min) / max((v_max - v_min), 1e-6)
         r = int(c_min[0] + (c_max[0] - c_min[0]) * ratio)
         g = int(c_min[1] + (c_max[1] - c_min[1]) * ratio)
-        b = int(c_min[2] + (c_max[2] - c_min[2]) * ratio) # <-- This was the line causing the error
+        b = int(c_min[2] + (c_max[2] - c_min[2]) * ratio)
     return f"background-color: #{r:02X}{g:02X}{b:02X}; color: #000000;"
 
 def color_binary_badge(val):
