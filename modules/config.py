@@ -509,11 +509,13 @@ def parse_table_selection_multi(event, df_source, col_name):
 def parse_pasted_tickers(raw_text):
     if not raw_text:
         return []
-    tokens = re.split(r"[,\\n\\r\\t;]+", raw_text)
+    # Splits on commas, spaces, tabs, newlines, and semicolons
+    tokens = re.split(r"[\s,;]+", raw_text)
     cleaned = []
     for t in tokens:
         t = t.strip().upper()
-        t = re.sub(r"[^A-Z0-9:]", "", t)
+        # Preserves letters, numbers, colons, underscores, hyphens, and ampersands
+        t = re.sub(r"[^A-Z0-9:_\-&]", "", t)
         if not t:
             continue
         if ":" not in t:
