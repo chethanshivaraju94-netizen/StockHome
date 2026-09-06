@@ -171,6 +171,7 @@ def render_screener_tab():
         numeric_cols = [
             "market_cap_basic", "close", "change", "high", "low", "open",
             "volume", tv_vol_col, "ADR", "price_52_week_high", "price_52_week_low",
+            "price_1_month_high", "price_3_month_high", "price_6_month_high", "price_all_time_high"
         ] + ma_cols_to_fetch
         for c in numeric_cols:
             if c in df.columns: df[c] = pd.to_numeric(df[c], errors="coerce")
@@ -246,6 +247,10 @@ def render_screener_tab():
         min_avg_vol_k = st.session_state.get("f_min_avg_vol_k_val", 200.0)
         en_rel_vol = st.session_state.get("f_en_rel_vol_chk", True)
         min_rel_vol = st.session_state.get("f_min_rel_vol_val", 3.0)
+        
+        # New High Filter States
+        en_new_high = st.session_state.get("f_en_new_high_chk", False)
+        new_high_period = st.session_state.get("f_new_high_period_val", "1 month")
 
         if en_price:
             df = df[df["close"] >= min_price]
@@ -255,10 +260,24 @@ def render_screener_tab():
             selected_tv_vol_col = f"average_volume_{vol_period_days_tv}d_calc"
             if selected_tv_vol_col in df.columns:
                 df[selected_tv_vol_col] = pd.to_numeric(df[selected_tv_vol_col], errors="coerce")
-                df = df[df[selected_tv_vol_col] >= (min_avg_vol_k * 1000)]
+                df = df[df[selected_tv_vol_col] >= min_avg_vol_k]
         if en_rel_vol and "relative_volume_10d_calc" in df.columns:
             df["relative_volume_10d_calc"] = pd.to_numeric(df["relative_volume_10d_calc"], errors="coerce")
             df = df[df["relative_volume_10d_calc"] > min_rel_vol]
+            
+        if en_new_high:
+            period_map = {
+                "1 month": "price_1_month_high",
+                "3 months": "price_3_month_high",
+                "6 months": "price_6_month_high",
+                "52 weeks": "price_52_week_high",
+                "All Time": "price_all_time_high"
+            }
+            high_col = period_map.get(new_high_period)
+            if high_col in df.columns and "high" in df.columns:
+                df[high_col] = pd.to_numeric(df[high_col], errors="coerce")
+                df["high"] = pd.to_numeric(df["high"], errors="coerce")
+                df = df[df["high"] >= df[high_col]]
 
         # =========================================================
         # 📐 QUANTITATIVE PATTERN RECOGNITION ENGINE
