@@ -181,6 +181,16 @@ def load_filter_presets():
             "pat_ema21": True,
             "pat_ema10": True,
             "pat_gap_rev": True,
+            # --- CUSTOM TV FILTERS ---
+            "f_en_price_chk": True,
+            "f_min_price_val": 30.0,
+            "f_en_chg_chk": True,
+            "f_min_chg_val": 3.0,
+            "f_en_avg_vol_chk": True,
+            "f_vol_period_days_tv": 30,
+            "f_min_avg_vol_k_val": 200.0,
+            "f_en_rel_vol_chk": True,
+            "f_min_rel_vol_val": 3.0,
         },
     }
     return load_data_from_db("filter_presets", PRESETS_FILE, default_presets)
