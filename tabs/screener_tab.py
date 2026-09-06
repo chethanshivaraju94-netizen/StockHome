@@ -235,6 +235,44 @@ def render_screener_tab():
             df = df.drop(columns=["_is_circuit_excluded"])
 
         # =========================================================
+        # 🚀 CUSTOM TRADINGVIEW FILTERS (PRICE, CHG%, VOL, REL VOL)
+        # =========================================================
+        st.markdown("---")
+        with st.expander("🚀 Custom TradingView Volume & Price Filters", expanded=True):
+            st.markdown("Apply additional base filters like minimum price, intraday change, and volume thresholds.")
+            
+            c_f1, c_f2, c_f3, c_f4 = st.columns(4)
+            with c_f1:
+                en_price = st.checkbox("Min Price (₹)", value=st.session_state.get("f_en_price_chk", True), key="f_en_price_chk")
+                min_price = st.number_input("Price >=", value=st.session_state.get("f_min_price_val", 30.0), disabled=not en_price, key="f_min_price_val")
+            with c_f2:
+                en_chg = st.checkbox("Min Change %", value=st.session_state.get("f_en_chg_chk", True), key="f_en_chg_chk")
+                min_chg_pct = st.number_input("Chg % >", value=st.session_state.get("f_min_chg_val", 3.0), disabled=not en_chg, key="f_min_chg_val")
+            with c_f3:
+                en_avg_vol = st.checkbox("Avg Vol (K)", value=st.session_state.get("f_en_avg_vol_chk", True), key="f_en_avg_vol_chk")
+                c_v1, c_v2 = st.columns([1, 1])
+                with c_v1:
+                    vol_period_days_tv = st.selectbox("Days", options=[10, 30, 60, 90], index=[10, 30, 60, 90].index(st.session_state.get("f_vol_period_days_tv", 30)), disabled=not en_avg_vol, key="f_vol_period_days_tv")
+                with c_v2:
+                    min_avg_vol_k = st.number_input("Vol >", value=st.session_state.get("f_min_avg_vol_k_val", 200.0), disabled=not en_avg_vol, key="f_min_avg_vol_k_val")
+            with c_f4:
+                en_rel_vol = st.checkbox("Relative Volume", value=st.session_state.get("f_en_rel_vol_chk", True), key="f_en_rel_vol_chk")
+                min_rel_vol = st.number_input("Rel Vol >", value=st.session_state.get("f_min_rel_vol_val", 3.0), disabled=not en_rel_vol, key="f_min_rel_vol_val")
+
+        if en_price:
+            df = df[df["close"] >= min_price]
+        if en_chg:
+            df = df[df["change"] > min_chg_pct]
+        if en_avg_vol:
+            selected_tv_vol_col = f"average_volume_{vol_period_days_tv}d_calc"
+            if selected_tv_vol_col in df.columns:
+                df[selected_tv_vol_col] = pd.to_numeric(df[selected_tv_vol_col], errors="coerce")
+                df = df[df[selected_tv_vol_col] >= (min_avg_vol_k * 1000)]
+        if en_rel_vol and "relative_volume_10d_calc" in df.columns:
+            df["relative_volume_10d_calc"] = pd.to_numeric(df["relative_volume_10d_calc"], errors="coerce")
+            df = df[df["relative_volume_10d_calc"] > min_rel_vol]
+
+        # =========================================================
         # 📐 QUANTITATIVE PATTERN RECOGNITION ENGINE
         # =========================================================
         st.markdown("---")
@@ -421,6 +459,12 @@ def render_screener_tab():
             df_display["Close"] = df_display["close"].round(2)
             df_display["Change %"] = df_display["change"].round(2)
             df_display["ADR %"] = df_display["ADR_pct"].round(2)
+            
+            if "relative_volume_10d_calc" in df_display.columns:
+                df_display["Rel Vol"] = pd.to_numeric(df_display["relative_volume_10d_calc"], errors="coerce").round(2)
+            else:
+                df_display["Rel Vol"] = "N/A"
+                
             df_display["TV_Symbol"] = df_display["exchange"] + ":" + df_display["name"]
             df_display["TV_Link"] = "https://www.tradingview.com/chart/?symbol=NSE:" + df_display["name"]
             df_display["Screener_Link"] = "https://www.screener.in/company/" + df_display["name"] + "/consolidated/"
@@ -479,7 +523,7 @@ def render_screener_tab():
             table_columns = (
                 ["S.No.", "TV_Symbol", "name", "RS Rating", "Fundamental", "Close", "Change %", "ADR %", "EPS Q YoY %", "Sales Q YoY %"]
                 + active_perf_labels + active_ma_labels
-                + [vol_display_label, "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
+                + [vol_display_label, "Rel Vol", "Market Cap (₹ Cr)", "IPO Date", "Sector", "Industry", "TV_Link", "Screener_Link"]
             )
             
             if en_patterns and "Detected_Pattern" in df_display.columns:
@@ -503,7 +547,7 @@ def render_screener_tab():
                     key=f"scan_filter_exc_{rc}_{sc}"
                 )
 
-            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
+            sort_options = ["Original Scan Order", "RS Rating", "Change %", "ADR %", "Rel Vol", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %"]
             for p_lbl in active_perf_labels:
                 if p_lbl not in sort_options:
                     sort_options.insert(1, p_lbl)
