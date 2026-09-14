@@ -268,18 +268,79 @@ def render_watchlist_tab():
                 key=f"wl_filter_exc_{wsc}"
             )
 
+        col_sec, col_ind = st.columns(2)
+        with col_sec:
+            available_sectors = sorted([s for s in merged_df["Sector"].unique() if pd.notna(s)])
+            wl_sector_choice = st.multiselect("🏢 Filter by Sector:", options=available_sectors, key=f"wl_sec_filt_{wsc}")
+        with col_ind:
+            available_industries = sorted([i for i in merged_df["Industry"].unique() if pd.notna(i)])
+            wl_industry_choice = st.multiselect("🏭 Filter by Industry:", options=available_industries, key=f"wl_ind_filt_{wsc}")
+
+        # --- NEW: PATTERN RECOGNITION ENGINE FOR WATCHLIST ---
+        st.markdown("---")
+        with st.expander("📐 Quantitative Pattern Recognition Engine (Dan Zanger / Minervini)", expanded=False):
+            st.markdown("Filter candidates via multi-pivot linear regression, apex convergence, and action trigger timing.")
+            
+            c_en, c_mode = st.columns([1, 2])
+            with c_en:
+                wl_en_patterns = st.checkbox("Enable Pattern Engine", value=False, key=f"wl_pat_en_{wsc}")
+            with c_mode:
+                wl_combo_mode = st.selectbox(
+                    "Match Logic:", 
+                    options=["Match ANY Selected Pattern / Trigger", "Require Action Trigger INSIDE a Base"],
+                    disabled=not wl_en_patterns,
+                    label_visibility="collapsed",
+                    key=f"wl_pat_mode_{wsc}"
+                )
+
+            st.caption("🔹 **Base Structures (The Setup):**")
+            col_b1, col_b2, col_b3, col_b4, col_b5 = st.columns(5)
+            with col_b1:
+                wl_pat_flat = st.checkbox("📐 Flat Base (10+ Bars < 15%)", value=True, disabled=not wl_en_patterns, key=f"wl_pf_{wsc}")
+            with col_b2:
+                wl_pat_flag = st.checkbox("🚩 Bull Flag / Pennant", value=True, disabled=not wl_en_patterns, key=f"wl_pfl_{wsc}")
+            with col_b3:
+                wl_pat_asc_tri = st.checkbox("📐 Ascending Triangle", value=True, disabled=not wl_en_patterns, key=f"wl_pat_{wsc}")
+            with col_b4:
+                wl_pat_desc_tri = st.checkbox("🔻 Descending Triangle", value=False, disabled=not wl_en_patterns, key=f"wl_pdt_{wsc}")
+            with col_b5:
+                wl_pat_sym_tri = st.checkbox("🔷 Symmetrical Triangle", value=True, disabled=not wl_en_patterns, key=f"wl_pst_{wsc}")
+
+            st.caption("⚡ **Action Triggers (Daily Entry Timing — Upper 40% Close + Range < ATR14):**")
+            col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+            with col_t1:
+                wl_pat_inside = st.checkbox("🎯 Inside Bar (NR14 + Vol Dry)", value=True, disabled=not wl_en_patterns, key=f"wl_pin_{wsc}")
+            with col_t2:
+                wl_pat_ema21 = st.checkbox("⚡ 21 EMA Shakeout", value=True, disabled=not wl_en_patterns, key=f"wl_p21_{wsc}")
+            with col_t3:
+                wl_pat_ema10 = st.checkbox("🔥 10 EMA Shakeout", value=True, disabled=not wl_en_patterns, key=f"wl_p10_{wsc}")
+            with col_t4:
+                wl_pat_gap_rev = st.checkbox("🔄 Gap Down Reversal", value=True, disabled=not wl_en_patterns, key=f"wl_pgr_{wsc}")
+
+        wl_pat_config = {
+            "flat": wl_pat_flat,
+            "flag": wl_pat_flag,
+            "asc_tri": wl_pat_asc_tri,
+            "desc_tri": wl_pat_desc_tri,
+            "sym_tri": wl_pat_sym_tri,
+            "inside": wl_pat_inside,
+            "ema21": wl_pat_ema21,
+            "ema10": wl_pat_ema10,
+            "gap_rev": wl_pat_gap_rev,
+        }
+
         # --- 2. APPLY FILTER & SORTING ---
         sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
         sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
 
-        # Include filter logic
+        # Include cross-filter logic
         if cross_filter_wls:
             valid_symbols = set()
             for f_wl in cross_filter_wls:
                 valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
             merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
 
-        # Exclude filter logic
+        # Exclude cross-filter logic
         if exclude_wls:
             exclude_symbols = set()
             wls_to_check = cross_filter_options if "[ALL WATCHLISTS]" in exclude_wls else exclude_wls
@@ -287,6 +348,24 @@ def render_watchlist_tab():
                 if f_wl in st.session_state.watchlists:
                     exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
             merged_df = merged_df[~merged_df["name"].isin(exclude_symbols)]
+
+        # Sector & Industry Filter Logic
+        if wl_sector_choice:
+            merged_df = merged_df[merged_df["Sector"].isin(wl_sector_choice)]
+        if wl_industry_choice:
+            merged_df = merged_df[merged_df["Industry"].isin(wl_industry_choice)]
+
+        # Pattern Recognition Filter Logic
+        if wl_en_patterns and not merged_df.empty and any(wl_pat_config.values()):
+            with st.spinner("📐 Reading cached OHLCV data & Running Geometric Engine..."):
+                from modules.patterns import run_pattern_engine
+                merged_df = run_pattern_engine(merged_df, wl_pat_config, wl_combo_mode)
+                
+            if merged_df.empty:
+                st.warning("No stocks passed the selected geometric pattern filters. Try turning off pattern screening or selecting different patterns.")
+        
+        if wl_en_patterns and "Detected_Pattern" in merged_df.columns:
+            wl_cols.insert(6, "Detected_Pattern")
 
         if sort_by_wl != "Original Watchlist Order":
             temp_col = "_temp_sort_col"
