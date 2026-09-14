@@ -3,10 +3,11 @@ import math
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from modules.config import map_to_indian_classification, parse_chart_selection_multi, parse_table_selection_multi
+from modules.config import parse_chart_selection_multi, parse_table_selection_multi
 from modules.data import (
     fetch_screener_data, get_nse_circuit_bands, coalesce_columns, 
-    add_clean_ipo_date_col, EPS_Q_ALIASES, SALES_Q_ALIASES
+    add_clean_ipo_date_col, apply_sector_industry_mapping,
+    EPS_Q_ALIASES, SALES_Q_ALIASES
 )
 from modules.styling import get_left_aligned_column_config
 from modules.ai_analyst import show_fundamental_modal, run_gemini_fundamental_analysis
@@ -101,13 +102,8 @@ def render_screener_tab():
             df = df[df["type"] == "stock"]
         df = df.drop_duplicates(subset=["name"], keep="first")
 
-        mapped_sectors, mapped_industries = [], []
-        for _, row in df.iterrows():
-            sec, ind = map_to_indian_classification(row.get("industry", ""), row.get("sector", ""))
-            mapped_sectors.append(sec)
-            mapped_industries.append(ind)
-        df["Sector"] = mapped_sectors
-        df["Industry"] = mapped_industries
+        # Apply official Chartsmaze NSE classification from JSON master
+        df = apply_sector_industry_mapping(df)
 
         total_sector_counts = df["Sector"].value_counts()
         total_industry_counts = df["Industry"].value_counts()
@@ -260,7 +256,6 @@ def render_screener_tab():
             selected_tv_vol_col = f"average_volume_{vol_period_days_tv}d_calc"
             if selected_tv_vol_col in df.columns:
                 df[selected_tv_vol_col] = pd.to_numeric(df[selected_tv_vol_col], errors="coerce")
-                # Removed the * 1000 multiplier to support exact raw volume inputs
                 df = df[df[selected_tv_vol_col] >= min_avg_vol_k]
         if en_rel_vol and "relative_volume_10d_calc" in df.columns:
             df["relative_volume_10d_calc"] = pd.to_numeric(df["relative_volume_10d_calc"], errors="coerce")
