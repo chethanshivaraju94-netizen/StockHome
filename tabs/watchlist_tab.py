@@ -268,12 +268,35 @@ def render_watchlist_tab():
                 key=f"wl_filter_exc_{wsc}"
             )
 
+        # Include filter logic (applied first so sector/industry dynamic lists update correctly)
+        if cross_filter_wls:
+            valid_symbols = set()
+            for f_wl in cross_filter_wls:
+                valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
+            merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
+
+        # Exclude filter logic
+        if exclude_wls:
+            exclude_symbols = set()
+            wls_to_check = cross_filter_options if "[ALL WATCHLISTS]" in exclude_wls else exclude_wls
+            for f_wl in wls_to_check:
+                if f_wl in st.session_state.watchlists:
+                    exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
+            merged_df = merged_df[~merged_df["name"].isin(exclude_symbols)]
+
+        # Cascading Sector & Industry Filters
         col_sec, col_ind = st.columns(2)
         with col_sec:
             available_sectors = sorted([s for s in merged_df["Sector"].unique() if pd.notna(s)])
             wl_sector_choice = st.multiselect("🏢 Filter by Sector:", options=available_sectors, key=f"wl_sec_filt_{wsc}")
         with col_ind:
-            available_industries = sorted([i for i in merged_df["Industry"].unique() if pd.notna(i)])
+            if wl_sector_choice:
+                # Limit industries to only those present in the selected sectors
+                filtered_for_ind = merged_df[merged_df["Sector"].isin(wl_sector_choice)]
+                available_industries = sorted([i for i in filtered_for_ind["Industry"].unique() if pd.notna(i)])
+            else:
+                available_industries = sorted([i for i in merged_df["Industry"].unique() if pd.notna(i)])
+                
             wl_industry_choice = st.multiselect("🏭 Filter by Industry:", options=available_industries, key=f"wl_ind_filt_{wsc}")
 
         # --- NEW: PATTERN RECOGNITION ENGINE FOR WATCHLIST ---
@@ -332,22 +355,6 @@ def render_watchlist_tab():
         # --- 2. APPLY FILTER & SORTING ---
         sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
         sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
-
-        # Include cross-filter logic
-        if cross_filter_wls:
-            valid_symbols = set()
-            for f_wl in cross_filter_wls:
-                valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
-            merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
-
-        # Exclude cross-filter logic
-        if exclude_wls:
-            exclude_symbols = set()
-            wls_to_check = cross_filter_options if "[ALL WATCHLISTS]" in exclude_wls else exclude_wls
-            for f_wl in wls_to_check:
-                if f_wl in st.session_state.watchlists:
-                    exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
-            merged_df = merged_df[~merged_df["name"].isin(exclude_symbols)]
 
         # Sector & Industry Filter Logic
         if wl_sector_choice:
