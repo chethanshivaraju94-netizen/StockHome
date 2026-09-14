@@ -346,13 +346,26 @@ def render_watchlist_tab():
                 st.success(f"✅ Promoted {cnt} stocks to **{promo_target}**!")
                 st.rerun()
 
+        st.markdown("---")
+        
+        # --- NEW: COPY SELECTED STOCKS FEATURE ---
+        if len(sel_symbols) > 0:
+            st.subheader(f"📋 Copy Selected Setups to TradingView ({len(sel_symbols)} Stocks)")
+            st.code(", ".join(sel_symbols), language="text")
+
         sorted_tv_symbols = merged_df["TV_Symbol"].tolist()
 
         # --- 3. RENDER SORTING ENGINE DIRECTLY UNDER HOT-SWAP HEADER ---
         st.markdown("#### ⚡ 30-Symbol TradingView Hot-Swap Batches")
         st.caption("💡 **Free Tier Bypass Workflow:** In TradingView, press **`Ctrl+A`** → **`Backspace`** → **`Ctrl+V`** in your TV watchlist box to hot-swap 30 stocks at a time!")
 
-        sort_cols_wl = ["Original Watchlist Order", "RS Rating", "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", "Perf % 3M", "Perf % 6M"]
+        # Expanded Dropdown Sorting Options
+        sort_cols_wl = [
+            "Original Watchlist Order", "RS Rating", "Sector", "Industry", 
+            "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", 
+            "EPS Q YoY %", "Sales Q YoY %", "Perf % 1W", "Perf % 1M", 
+            "Perf % 3M", "Perf % 6M", "IPO Date", "Fundamental", "Catalyst"
+        ]
         
         wl_s1, wl_s2 = st.columns([1.5, 3.5])
         with wl_s1:
