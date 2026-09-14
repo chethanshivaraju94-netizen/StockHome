@@ -57,8 +57,9 @@ def add_clean_ipo_date_col(df):
     df["IPO Date"] = df["IPO_Date_DT"].dt.strftime("%Y-%m-%d").fillna("N/A")
     return df
 
+# Renamed to v2 to permanently bust the stuck Streamlit cache
 @st.cache_data(ttl=86400, show_spinner=False)
-def load_sector_master():
+def load_sector_master_v2():
     """
     Loads the official NSE sector and industry master dictionary.
     First checks locally; if running on Streamlit Cloud, fetches from GitHub raw.
@@ -74,13 +75,13 @@ def load_sector_master():
     headers_list = []
     if GITHUB_TOKEN:
         headers_list.append({"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {GITHUB_TOKEN}"})
-        headers_list.append({"User-Agent": "Mozilla/5.0", "Authorization": f"token {GITHUB_TOKEN}"})
     headers_list.append({"User-Agent": "Mozilla/5.0"})
 
+    # Check all possible repo names you might be deploying from
     repos = [
         "chethanshivaraju94-netizen/StockHome",
-        "chethanshivaraju94-netizen/India-equities-screener",
-        "chethanshivaraju94-netizen/India-equities-screener-v2"
+        "chethanshivaraju94-netizen/india-equities-screener-v2",
+        "chethanshivaraju94-netizen/India-equities-screener"
     ]
     branches = ["main", "master"]
 
@@ -104,7 +105,8 @@ def apply_sector_industry_mapping(df):
     if df.empty:
         return df
 
-    master_dict = load_sector_master()
+    # Call the new v2 cache function
+    master_dict = load_sector_master_v2()
     mapped_sectors = []
     mapped_industries = []
 
@@ -158,7 +160,6 @@ def fetch_excel_file(filename):
     headers_list = []
     if GITHUB_TOKEN:
         headers_list.append({"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {GITHUB_TOKEN}"})
-        headers_list.append({"User-Agent": "Mozilla/5.0", "Authorization": f"token {GITHUB_TOKEN}"})
     headers_list.append({"User-Agent": "Mozilla/5.0"})
 
     repos = ["chethanshivaraju94-netizen/nse-market-monitor", "chethanshivaraju94-netizen/India-equities-screener", "chethanshivaraju94-netizen/StockHome"]
@@ -187,7 +188,6 @@ def load_market_monitor_data():
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
         return df
     except Exception as e:
-        st.error(f"Could not parse Market Monitor file: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600, show_spinner="⚡ Fetching Sector Rotation & Heatmap tables...")
@@ -203,7 +203,6 @@ def load_sector_monitor_data():
             df_rot["Date"] = pd.to_datetime(df_rot["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
         return df_heat, df_rot
     except Exception as e:
-        st.error(f"Could not parse Sector Monitor file: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
 def fetch_screener_data(exchanges, min_mcap, vol_period_days, ma_columns_to_fetch, limit_rows):
