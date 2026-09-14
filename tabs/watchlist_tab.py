@@ -253,17 +253,40 @@ def render_watchlist_tab():
 
         # --- 1. RENDER FILTER DROPDOWN DIRECTLY ABOVE TABLE ---
         cross_filter_options = [w for w in wl_names if w != active_wl]
-        cross_filter_wls = st.multiselect("🔍 Filter: Show only stocks also present in:", options=cross_filter_options, key=f"wl_filter_{wsc}")
+        
+        col_inc, col_exc = st.columns(2)
+        with col_inc:
+            cross_filter_wls = st.multiselect(
+                "🔍 Include ONLY stocks present in:", 
+                options=cross_filter_options, 
+                key=f"wl_filter_inc_{wsc}"
+            )
+        with col_exc:
+            exclude_wls = st.multiselect(
+                "🚫 Exclude stocks present in:", 
+                options=["[ALL WATCHLISTS]"] + cross_filter_options, 
+                key=f"wl_filter_exc_{wsc}"
+            )
 
         # --- 2. APPLY FILTER & SORTING ---
         sort_by_wl = st.session_state.get(f"wl_sort_{wsc}", "Original Watchlist Order")
         sort_asc_wl = st.session_state.get(f"wl_asc_{wsc}", False)
 
+        # Include filter logic
         if cross_filter_wls:
             valid_symbols = set()
             for f_wl in cross_filter_wls:
                 valid_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists.get(f_wl, [])])
             merged_df = merged_df[merged_df["name"].isin(valid_symbols)]
+
+        # Exclude filter logic
+        if exclude_wls:
+            exclude_symbols = set()
+            wls_to_check = cross_filter_options if "[ALL WATCHLISTS]" in exclude_wls else exclude_wls
+            for f_wl in wls_to_check:
+                if f_wl in st.session_state.watchlists:
+                    exclude_symbols.update([s.split(":")[-1].strip().upper() for s in st.session_state.watchlists[f_wl]])
+            merged_df = merged_df[~merged_df["name"].isin(exclude_symbols)]
 
         if sort_by_wl != "Original Watchlist Order":
             temp_col = "_temp_sort_col"
@@ -348,7 +371,6 @@ def render_watchlist_tab():
 
         st.markdown("---")
         
-        # --- NEW: COPY SELECTED STOCKS FEATURE ---
         if len(sel_symbols) > 0:
             st.subheader(f"📋 Copy Selected Setups to TradingView ({len(sel_symbols)} Stocks)")
             st.code(", ".join(sel_symbols), language="text")
@@ -359,7 +381,6 @@ def render_watchlist_tab():
         st.markdown("#### ⚡ 30-Symbol TradingView Hot-Swap Batches")
         st.caption("💡 **Free Tier Bypass Workflow:** In TradingView, press **`Ctrl+A`** → **`Backspace`** → **`Ctrl+V`** in your TV watchlist box to hot-swap 30 stocks at a time!")
 
-        # Expanded Dropdown Sorting Options
         sort_cols_wl = [
             "Original Watchlist Order", "RS Rating", "Sector", "Industry", 
             "Change %", "ADR %", "Close", "Market Cap (₹ Cr)", 
